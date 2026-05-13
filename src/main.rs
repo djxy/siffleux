@@ -8,6 +8,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::Duration;
 use tokio::time::sleep;
 use tracing::info;
+use uuid::Uuid;
 
 const SERVER_NAME: &str = "localhost";
 const SERVER_PORT: u16 = 5001;
@@ -37,6 +38,7 @@ async fn main() -> anyhow::Result<()> {
 
     loop {
         let client = Tunnel::new_with_self_signed_certificate(
+            Uuid::max(),
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), SERVER_PORT),
             SERVER_NAME.to_string(),
             cert_der.clone(),

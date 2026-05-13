@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 pub struct Tunnel {
     id: Uuid,
+    ingress_id: Uuid,
     server_address: SocketAddr,
     server_name: String,
     client_config: ClientConfig,
@@ -18,6 +19,7 @@ pub struct Tunnel {
 
 impl Tunnel {
     pub fn new_with_self_signed_certificate(
+        ingress_id: Uuid,
         server_address: SocketAddr,
         server_name: String,
         certificate_der: CertificateDer,
@@ -31,6 +33,7 @@ impl Tunnel {
             .with_no_client_auth();
 
         Ok(Tunnel::new(
+            ingress_id,
             server_address,
             server_name,
             ClientConfig::new(Arc::new(QuicClientConfig::try_from(crypto)?)),
@@ -38,12 +41,14 @@ impl Tunnel {
     }
 
     pub fn new(
+        ingress_id: Uuid,
         server_address: SocketAddr,
         server_name: String,
         client_config: ClientConfig,
     ) -> Self {
         Tunnel {
             id: Uuid::new_v4(),
+            ingress_id,
             server_address,
             server_name,
             client_config,
@@ -58,7 +63,7 @@ impl Tunnel {
             return Err(anyhow::anyhow!("Connection already established."));
         }
 
-        info!("Connecting {}", self.id);
+        info!("Connecting tunnel_id={} ingress_id={}", self.id, self.ingress_id);
 
         let connection = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?
             .connect_with(
@@ -71,9 +76,8 @@ impl Tunnel {
         let (mut send, mut recv) = connection.open_bi().await?;
 
         send.write_all(self.id.as_bytes()).await?;
-        recv.read_to_end(0).await;
-        send.finish()?;
-        info!("Connected {}", self.id);
+        send.write_all(self.ingress_id.as_bytes()).await?;
+        recv.read_to_end(0).await?;
 
         *connection_guard = Some(connection);
 

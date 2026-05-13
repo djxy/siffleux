@@ -1,9 +1,12 @@
-use quinn::{ConnectionError, Endpoint, Incoming, RecvStream, SendStream, ServerConfig, VarInt};
+use quinn::{Connection, Endpoint, Incoming, RecvStream, SendStream, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::RwLock;
+use tokio::time::sleep;
 use tracing::info;
 use uuid::Uuid;
 
@@ -15,6 +18,7 @@ pub struct TunnelServer {
 pub struct TunnelServerInner {
     server_config: ServerConfig,
     endpoint: RwLock<Option<Endpoint>>,
+    tunnels_by_ingress_id: RwLock<HashMap<Uuid, HashMap<Uuid, Connection>>>,
 }
 
 impl Deref for TunnelServer {
@@ -46,6 +50,7 @@ impl TunnelServer {
             inner: Arc::new(TunnelServerInner {
                 server_config,
                 endpoint: RwLock::new(None),
+                tunnels_by_ingress_id: RwLock::new(HashMap::new()),
             }),
         }
     }
@@ -82,6 +87,8 @@ impl TunnelServer {
     }
 
     fn handle_connection(&self, incoming_connection: Incoming) {
+        let self_clone = self.clone();
+
         tokio::spawn(async move {
             let connection = match incoming_connection.await {
                 Ok(conn) => conn,
@@ -92,17 +99,55 @@ impl TunnelServer {
             };
 
             match connection.accept_bi().await {
-                Ok((send, mut recv)) => {
-                    let mut tunnel_id_buffer = [0u8; 16];
-                    recv.read_exact(&mut tunnel_id_buffer).await.unwrap();
-                    let tunnel_id = Uuid::from_slice(&tunnel_id_buffer).unwrap();
+                Ok((mut send, mut recv)) => {
+                    let mut buffer = [0u8; 16 + 16];
+                    recv.read_exact(&mut buffer).await.unwrap();
+                    send.finish();
 
-                    info!("Received tunnel_id {tunnel_id}");
-                    connection.close(VarInt::from_u32(0), b"done");
+                    let tunnel_id = Uuid::from_slice(&buffer[..16]).unwrap();
+                    let ingress_id = Uuid::from_slice(&buffer[16..]).unwrap();
+
+                    info!("Received tunnel_id={tunnel_id} ingress_id={ingress_id}");
+
+                    self_clone.handle_connection_close(connection.clone(), ingress_id, tunnel_id);
+
+                    {
+                        let mut tunnels_by_ingress_id =
+                            self_clone.tunnels_by_ingress_id.write().await;
+
+                        tunnels_by_ingress_id
+                            .entry(ingress_id)
+                            .or_insert_with(HashMap::new)
+                            .insert(tunnel_id, connection.clone());
+                    }
+
+                    sleep(Duration::from_millis(10)).await;
                 }
                 Err(e) => {
+                    connection.close(VarInt::from_u32(1), b"TUNNEL_ID_ERROR");
                     tracing::warn!("Incoming connection didn't received first stream: {e}");
+                    return;
                 }
+            }
+        });
+    }
+
+    fn handle_connection_close(&self, connection: Connection, ingress_id: Uuid, tunnel_id: Uuid) {
+        let self_clone = self.clone();
+        tokio::spawn(async move {
+            info!(
+                "tunnel_id={tunnel_id} closed: {:?}",
+                connection.closed().await
+            );
+
+            if let Some(tunnels) = self_clone
+                .tunnels_by_ingress_id
+                .write()
+                .await
+                .get_mut(&ingress_id)
+            {
+                tunnels.remove(&tunnel_id);
+                info!("tunnels={}", tunnels.len());
             }
         });
     }
