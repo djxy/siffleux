@@ -1,12 +1,11 @@
+pub mod client;
+pub mod messages;
 pub mod server;
-mod tunnel;
 
-use crate::server::TunnelServer;
-use crate::tunnel::Tunnel;
+use crate::client::KipawaTunnel;
+use crate::server::KipawaServer;
 use quinn::rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::time::Duration;
-use tokio::time::sleep;
 use tracing::info;
 use uuid::Uuid;
 
@@ -23,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
 
     let (cert_der, key) = generate_self_signed_cert()?;
 
-    let server = TunnelServer::new_with_self_signed_certificate(cert_der.clone(), key).unwrap();
+    let server = KipawaServer::new_with_self_signed_certificate(cert_der.clone(), key).unwrap();
 
     info!("Starting server");
 
@@ -37,17 +36,17 @@ async fn main() -> anyhow::Result<()> {
     info!("Server started");
 
     loop {
-        let client = Tunnel::new_with_self_signed_certificate(
-            Uuid::max(),
+        let client = KipawaTunnel::connect_with_certificates(
+            &Uuid::new_v4().to_string(),
+            &Uuid::max().to_string(),
+            "kipawa-test",
             SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), SERVER_PORT),
             SERVER_NAME.to_string(),
-            cert_der.clone(),
-        )?;
+            vec![cert_der.clone()],
+        )
+        .await?;
 
-        client.connect().await?;
-        client.close().await;
-
-        // sleep(Duration::from_millis(200)).await;
+        client.close();
     }
 
     Ok(())
