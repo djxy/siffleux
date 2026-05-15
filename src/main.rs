@@ -1,9 +1,9 @@
 pub mod client;
-pub mod messages;
+pub mod message;
 pub mod server;
 
-use crate::client::KipawaTunnel;
-use crate::server::KipawaServer;
+use crate::client::Tunnel;
+use crate::server::Server;
 use quinn::rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use tracing::info;
@@ -22,7 +22,7 @@ async fn main() -> anyhow::Result<()> {
 
     let (cert_der, key) = generate_self_signed_cert()?;
 
-    let server = KipawaServer::new_with_self_signed_certificate(cert_der.clone(), key).unwrap();
+    let server = Server::new_with_self_signed_certificate("", cert_der.clone(), key).unwrap();
 
     info!("Starting server");
 
@@ -36,7 +36,7 @@ async fn main() -> anyhow::Result<()> {
     info!("Server started");
 
     loop {
-        let client = KipawaTunnel::connect_with_certificates(
+        let tunnel = Tunnel::connect_with_certificates(
             &Uuid::new_v4().to_string(),
             &Uuid::max().to_string(),
             "kipawa-test",
@@ -46,7 +46,7 @@ async fn main() -> anyhow::Result<()> {
         )
         .await?;
 
-        client.close();
+        tunnel.close();
     }
 
     Ok(())

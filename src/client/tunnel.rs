@@ -1,5 +1,4 @@
-use crate::messages::handshake::{HandshakeV1Request, HandshakeV1Response};
-use crate::server::KipawaServer;
+use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Connection, Endpoint, VarInt};
 use rustls::RootCertStore;
@@ -11,26 +10,26 @@ use tracing::info;
 use uuid::Uuid;
 
 #[derive(Clone)]
-pub struct KipawaTunnel {
-    inner: Arc<KipawaTunnelInner>,
+pub struct Tunnel {
+    inner: Arc<TunnelInner>,
 }
 
-pub struct KipawaTunnelInner {
+pub struct TunnelInner {
     id: Uuid,
     name: String,
     ingress_id: String,
     connection: Connection,
 }
 
-impl Deref for KipawaTunnel {
-    type Target = KipawaTunnelInner;
+impl Deref for Tunnel {
+    type Target = TunnelInner;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl KipawaTunnel {
+impl Tunnel {
     pub async fn connect_with_certificates(
         auth_key: &str,
         ingress_id: &str,
@@ -38,7 +37,7 @@ impl KipawaTunnel {
         server_address: SocketAddr,
         server_name: String,
         certificates: Vec<CertificateDer<'static>>,
-    ) -> anyhow::Result<KipawaTunnel> {
+    ) -> anyhow::Result<Tunnel> {
         let mut roots = RootCertStore::empty();
 
         for cert in certificates {
@@ -71,7 +70,7 @@ impl KipawaTunnel {
         auth_key: &str,
         ingress_id: &str,
         name: &str,
-    ) -> anyhow::Result<KipawaTunnel> {
+    ) -> anyhow::Result<Tunnel> {
         let (mut send, mut recv) = connection.open_bi().await?;
 
         info!("Sending handshake auth_key={auth_key} ingress_id={ingress_id}");
@@ -79,7 +78,7 @@ impl KipawaTunnel {
         HandshakeV1Request::write(&mut send, auth_key, ingress_id, name).await?;
 
         let response = HandshakeV1Response::read(&mut recv).await?;
-
+        
         recv.read_to_end(0).await?;
 
         info!(
@@ -87,12 +86,12 @@ impl KipawaTunnel {
             response.id
         );
 
-        Ok(KipawaTunnel::new(response.id, name, ingress_id, connection))
+        Ok(Tunnel::new(response.id, name, ingress_id, connection))
     }
 
     fn new(id: Uuid, name: &str, ingress_id: &str, connection: Connection) -> Self {
-        KipawaTunnel {
-            inner: Arc::new(KipawaTunnelInner {
+        Tunnel {
+            inner: Arc::new(TunnelInner {
                 id,
                 name: name.to_string(),
                 ingress_id: ingress_id.to_string(),

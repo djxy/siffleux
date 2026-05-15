@@ -1,41 +1,44 @@
-use crate::messages::handshake::{HandshakeV1Request, HandshakeV1Response};
+use crate::message::code::WRONG_AUTH_KEY;
+use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
 use crate::server::tunnel_connection::TunnelConnection;
-use quinn::{Endpoint, Incoming, RecvStream, SendStream, ServerConfig, VarInt};
+use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU16, Ordering};
 use tokio::sync::RwLock;
-use tokio::time::sleep;
 use tracing::info;
 use uuid::Uuid;
 
 #[derive(Clone)]
-pub struct KipawaServer {
-    inner: Arc<KipawaServerInner>,
+pub struct Server {
+    inner: Arc<ServerInner>,
 }
 
-pub struct KipawaServerInner {
+pub struct ServerInner {
+    port: AtomicU16,
+    auth_key: String,
     server_config: ServerConfig,
     endpoint: RwLock<Option<Endpoint>>,
     tunnels_by_ingress_id: RwLock<HashMap<Uuid, HashMap<Uuid, Arc<TunnelConnection>>>>,
 }
 
-impl Deref for KipawaServer {
-    type Target = KipawaServerInner;
+impl Deref for Server {
+    type Target = ServerInner;
 
     fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }
 
-impl KipawaServer {
+impl Server {
     pub fn new_with_self_signed_certificate(
+        auth_key: &str,
         certificate_der: CertificateDer<'static>,
         private_key: PrivatePkcs8KeyDer<'static>,
-    ) -> anyhow::Result<KipawaServer> {
+    ) -> anyhow::Result<Server> {
         let crypto = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![certificate_der], PrivateKeyDer::from(private_key))?;
@@ -44,17 +47,23 @@ impl KipawaServer {
             quinn::crypto::rustls::QuicServerConfig::try_from(crypto)?,
         ));
 
-        Ok(KipawaServer::new(server_config))
+        Ok(Server::new(auth_key, server_config))
     }
 
-    pub fn new(server_config: ServerConfig) -> KipawaServer {
-        KipawaServer {
-            inner: Arc::new(KipawaServerInner {
+    pub fn new(auth_key: &str, server_config: ServerConfig) -> Server {
+        Server {
+            inner: Arc::new(ServerInner {
+                auth_key: auth_key.to_string(),
                 server_config,
+                port: AtomicU16::new(0),
                 endpoint: RwLock::new(None),
                 tunnels_by_ingress_id: RwLock::new(HashMap::new()),
             }),
         }
+    }
+
+    pub fn port(&self) -> u16 {
+        self.port.load(Ordering::SeqCst)
     }
 
     pub async fn listen(&self, socket_addr: SocketAddr) -> anyhow::Result<()> {
@@ -66,6 +75,9 @@ impl KipawaServer {
             }
 
             let endpoint = Endpoint::server(self.server_config.clone(), socket_addr)?;
+
+            self.port
+                .store(endpoint.local_addr()?.port(), Ordering::SeqCst);
 
             *endpoint_guard = Some(endpoint.clone());
             endpoint
@@ -103,6 +115,11 @@ impl KipawaServer {
             match connection.accept_bi().await {
                 Ok((mut send, mut recv)) => {
                     let handshake = HandshakeV1Request::read(&mut recv).await.unwrap();
+
+                    if handshake.auth_key != self_clone.auth_key {
+                        connection.close(WRONG_AUTH_KEY.code, WRONG_AUTH_KEY.reason);
+                        return;
+                    }
 
                     info!(
                         "Received handshake auth_key={} ingress_id={} name={}.",

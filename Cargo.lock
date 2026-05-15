@@ -439,6 +439,7 @@ dependencies = [
  "quinn",
  "rcgen",
  "rustls",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
  "tracing-subscriber",

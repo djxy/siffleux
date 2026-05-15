@@ -1,3 +1,4 @@
-mod kipawa_tunnel;
+pub mod error;
+mod tunnel;
 
-pub use kipawa_tunnel::KipawaTunnel;
+pub use tunnel::Tunnel;
