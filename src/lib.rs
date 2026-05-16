@@ -7,4 +7,5 @@ mod types;
 pub use client::Tunnel;
 pub use error::Error;
 pub use server::Server;
+pub use server::ingress::*;
 pub use types::*;
