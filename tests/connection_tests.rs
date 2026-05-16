@@ -2,7 +2,6 @@ use kipawa::{AuthKey, Error, IngressId, Server, Tunnel, TunnelName};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::OnceLock;
-use uuid::Uuid;
 
 static CRYPTO: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>)> = OnceLock::new();
 
@@ -25,11 +24,14 @@ fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'stati
 #[tokio::test]
 async fn test_handshake_v1_successful() {
     let (cert_der, key) = init_crypto();
-    let auth_key = Uuid::new_v4().to_string();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
 
-    let server =
-        Server::new_with_self_signed_certificate(&auth_key, cert_der.clone(), key.clone_key())
-            .unwrap();
+    let server = Server::new_with_self_signed_certificate(
+        auth_key.clone(),
+        cert_der.clone(),
+        key.clone_key(),
+    )
+    .unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
@@ -37,7 +39,7 @@ async fn test_handshake_v1_successful() {
         .unwrap();
 
     let tunnel = Tunnel::connect_with_certificates(
-        AuthKey::try_from(auth_key).unwrap(),
+        auth_key.clone(),
         IngressId::try_from("").unwrap(),
         TunnelName::try_from("").unwrap(),
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port()),
@@ -57,7 +59,7 @@ async fn test_handshake_v1_wrong_auth_key() {
     let (cert_der, key) = init_crypto();
 
     let server = Server::new_with_self_signed_certificate(
-        &Uuid::new_v4().to_string(),
+        AuthKey::try_from("valid_auth_key").unwrap(),
         cert_der.clone(),
         key.clone_key(),
     )

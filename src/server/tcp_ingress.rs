@@ -1,9 +1,8 @@
-use crate::server::tunnel_connection::TunnelConnection;
+use crate::server::server_tunnel::ServerTunnel;
 use std::collections::HashMap;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct TcpIngress {
@@ -11,7 +10,7 @@ pub struct TcpIngress {
 }
 
 pub struct TcpIngressInner {
-    tunnels_id: RwLock<HashMap<Uuid, Arc<TunnelConnection>>>,
+    tunnels_id: RwLock<HashMap<u64, Arc<ServerTunnel>>>,
 }
 
 impl Deref for TcpIngress {

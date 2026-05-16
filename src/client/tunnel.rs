@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
-use crate::types::{AuthKey, IngressId, TunnelName};
+use crate::types::{AuthKey, IngressId, TunnelId, TunnelName};
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Connection, Endpoint, VarInt};
 use rustls::RootCertStore;
@@ -9,7 +9,6 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::ops::Deref;
 use std::sync::Arc;
 use tracing::info;
-use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct Tunnel {
@@ -17,8 +16,8 @@ pub struct Tunnel {
 }
 
 pub struct TunnelInner {
-    id: Uuid,
-    tunnel_name: TunnelName,
+    id: TunnelId,
+    name: TunnelName,
     ingress_id: IngressId,
     connection: Connection,
 }
@@ -35,7 +34,7 @@ impl Tunnel {
     pub async fn connect_with_certificates(
         auth_key: AuthKey,
         ingress_id: IngressId,
-        tunnel_name: TunnelName,
+        name: TunnelName,
         server_address: SocketAddr,
         server_name: String,
         certificates: Vec<CertificateDer<'static>>,
@@ -62,7 +61,7 @@ impl Tunnel {
                 .await?,
             auth_key,
             ingress_id,
-            tunnel_name,
+            name,
         )
         .await
     }
@@ -71,13 +70,13 @@ impl Tunnel {
         connection: Connection,
         auth_key: AuthKey,
         ingress_id: IngressId,
-        tunnel_name: TunnelName,
+        name: TunnelName,
     ) -> Result<Tunnel, Error> {
         let (mut send, mut recv) = connection.open_bi().await?;
 
         info!("Sending handshake ingress_id={ingress_id}");
 
-        HandshakeV1Request::write(&mut send, &auth_key, &ingress_id, &tunnel_name).await?;
+        HandshakeV1Request::write(&mut send, &auth_key, &ingress_id, &name).await?;
 
         let response = HandshakeV1Response::read(&mut recv).await?;
 
@@ -85,39 +84,39 @@ impl Tunnel {
 
         info!(
             "Handshake complete ID={} ingress_id={ingress_id}.",
-            response.id
+            response.tunnel_id
         );
 
         Ok(Tunnel::new(
-            response.id,
-            tunnel_name,
+            response.tunnel_id,
+            name,
             ingress_id,
             connection,
         ))
     }
 
     fn new(
-        id: Uuid,
-        tunnel_name: TunnelName,
+        id: TunnelId,
+        name: TunnelName,
         ingress_id: IngressId,
         connection: Connection,
     ) -> Self {
         Tunnel {
             inner: Arc::new(TunnelInner {
                 id,
-                tunnel_name,
+                name,
                 ingress_id,
                 connection,
             }),
         }
     }
 
-    pub fn id(&self) -> Uuid {
+    pub fn id(&self) -> TunnelId {
         self.id
     }
 
-    pub fn tunnel_name(&self) -> &TunnelName {
-        &self.tunnel_name
+    pub fn name(&self) -> &TunnelName {
+        &self.name
     }
 
     pub fn ingress_id(&self) -> &IngressId {

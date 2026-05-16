@@ -24,6 +24,12 @@ pub enum Error {
     #[error("Invalid data: {0}")]
     InvalidData(Box<dyn std::error::Error + Send + Sync>),
 
+    #[error("The server is already listening")]
+    ServerAlreadyListening,
+
+    #[error("Unknown error: {0}")]
+    TLS(#[from] rustls::Error),
+
     #[error("Unknown error: {0}")]
     Unknown(Box<dyn std::error::Error + Send + Sync>),
 }
@@ -93,12 +99,6 @@ impl From<ConnectionError> for Error {
     }
 }
 
-impl From<uuid::Error> for Error {
-    fn from(value: uuid::Error) -> Self {
-        Error::InvalidData(value.into())
-    }
-}
-
 impl From<FromUtf8Error> for Error {
     fn from(value: FromUtf8Error) -> Self {
         Error::InvalidData(value.into())
@@ -109,14 +109,6 @@ impl From<std::io::Error> for Error {
     fn from(io_error: std::io::Error) -> Self {
         match io_error {
             _ => Error::Unknown(io_error.into()),
-        }
-    }
-}
-
-impl From<rustls::Error> for Error {
-    fn from(rustls_error: rustls::Error) -> Self {
-        match rustls_error {
-            _ => Error::Unknown(rustls_error.into()),
         }
     }
 }
