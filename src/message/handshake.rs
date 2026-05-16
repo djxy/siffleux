@@ -1,3 +1,5 @@
+use crate::error::Error;
+use crate::types::{AuthKey, IngressId, TunnelName};
 use bytes::{BufMut, BytesMut};
 use quinn::{RecvStream, SendStream};
 use uuid::Uuid;
@@ -19,39 +21,38 @@ pub struct HandshakeV1Response {
 impl HandshakeV1Request {
     pub async fn write(
         send: &mut SendStream,
-        auth_key: &str,
-        ingress_id: &str,
-        name: &str,
-    ) -> anyhow::Result<()> {
-        anyhow::ensure!(auth_key.len() <= 255, "auth_key too long. Max 255 bytes.");
-        anyhow::ensure!(
-            ingress_id.len() <= 255,
-            "ingress_id too long. Max 255 bytes."
+        auth_key: &AuthKey,
+        ingress_id: &IngressId,
+        tunnel_name: &TunnelName,
+    ) -> Result<(), Error> {
+        let mut buffer = BytesMut::with_capacity(
+            (1 + 1 + auth_key.len() + 1 + ingress_id.len() + 1 + tunnel_name.len()) as usize,
         );
-        anyhow::ensure!(name.len() <= 255, "name too long. Max 255 bytes.");
-
-        let mut buffer =
-            BytesMut::with_capacity(1 + 1 + auth_key.len() + 1 + ingress_id.len() + 1 + name.len());
 
         buffer.put_u8(VERSION);
-        buffer.put_u8(auth_key.len() as u8);
-        buffer.put_slice(auth_key.as_bytes());
-        buffer.put_u8(ingress_id.len() as u8);
-        buffer.put_slice(ingress_id.as_bytes());
-        buffer.put_u8(name.len() as u8);
-        buffer.put_slice(name.as_bytes());
+        buffer.put_u8(auth_key.len());
+        buffer.put_slice(auth_key.value().as_bytes());
+        buffer.put_u8(ingress_id.len());
+        buffer.put_slice(ingress_id.value().as_bytes());
+        buffer.put_u8(tunnel_name.len());
+        buffer.put_slice(tunnel_name.value().as_bytes());
 
         send.write_chunk(buffer.freeze()).await?;
 
         Ok(())
     }
 
-    pub async fn read(recv: &mut RecvStream) -> anyhow::Result<HandshakeV1Request> {
+    pub async fn read(recv: &mut RecvStream) -> Result<HandshakeV1Request, Error> {
         let mut buffer = [0u8; 255];
         recv.read_exact(&mut buffer[..1]).await?;
         let version = buffer[0];
 
-        anyhow::ensure!(VERSION == version, "Incompatible version received.");
+        if version != VERSION {
+            return Err(Error::IncompatibleVersion {
+                expected: VERSION,
+                received: version,
+            });
+        }
 
         recv.read_exact(&mut buffer[..1]).await?;
         let auth_key_len = buffer[0] as usize;
@@ -87,13 +88,13 @@ impl HandshakeV1Request {
 }
 
 impl HandshakeV1Response {
-    pub async fn write(send: &mut SendStream, id: Uuid) -> anyhow::Result<()> {
+    pub async fn write(send: &mut SendStream, id: Uuid) -> Result<(), Error> {
         send.write_all(id.as_bytes()).await?;
 
         Ok(())
     }
 
-    pub async fn read(recv: &mut RecvStream) -> anyhow::Result<HandshakeV1Response> {
+    pub async fn read(recv: &mut RecvStream) -> Result<HandshakeV1Response, Error> {
         let mut buffer = [0u8; 16];
 
         recv.read_exact(&mut buffer[..]).await?;

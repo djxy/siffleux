@@ -3,7 +3,6 @@ use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
 use crate::server::tunnel_connection::TunnelConnection;
 use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -22,7 +21,6 @@ pub struct ServerInner {
     auth_key: String,
     server_config: ServerConfig,
     endpoint: RwLock<Option<Endpoint>>,
-    tunnels_by_ingress_id: RwLock<HashMap<Uuid, HashMap<Uuid, Arc<TunnelConnection>>>>,
 }
 
 impl Deref for Server {
@@ -57,7 +55,6 @@ impl Server {
                 server_config,
                 port: AtomicU16::new(0),
                 endpoint: RwLock::new(None),
-                tunnels_by_ingress_id: RwLock::new(HashMap::new()),
             }),
         }
     }
@@ -166,23 +163,12 @@ impl Server {
     }
 
     fn handle_connection_close(&self, tunnel_connection: Arc<TunnelConnection>) {
-        let self_clone = self.clone();
         tokio::spawn(async move {
             info!(
                 "tunnel_id={} closed: {:?}",
                 tunnel_connection.id(),
                 tunnel_connection.connection().closed().await
             );
-
-            // if let Some(tunnels) = self_clone
-            //     .tunnels_by_ingress_id
-            //     .write()
-            //     .await
-            //     .get_mut(&tunnel_connection.ingress_id)
-            // {
-            //     tunnels.remove(&tunnel_connection.id);
-            //     info!("tunnels={}", tunnels.len());
-            // }
         });
     }
 }

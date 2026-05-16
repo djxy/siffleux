@@ -1,4 +1,6 @@
+use crate::error::Error;
 use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
+use crate::types::{AuthKey, IngressId, TunnelName};
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Connection, Endpoint, VarInt};
 use rustls::RootCertStore;
@@ -16,8 +18,8 @@ pub struct Tunnel {
 
 pub struct TunnelInner {
     id: Uuid,
-    name: String,
-    ingress_id: String,
+    tunnel_name: TunnelName,
+    ingress_id: IngressId,
     connection: Connection,
 }
 
@@ -31,13 +33,13 @@ impl Deref for Tunnel {
 
 impl Tunnel {
     pub async fn connect_with_certificates(
-        auth_key: &str,
-        ingress_id: &str,
-        name: &str,
+        auth_key: AuthKey,
+        ingress_id: IngressId,
+        tunnel_name: TunnelName,
         server_address: SocketAddr,
         server_name: String,
         certificates: Vec<CertificateDer<'static>>,
-    ) -> anyhow::Result<Tunnel> {
+    ) -> Result<Tunnel, Error> {
         let mut roots = RootCertStore::empty();
 
         for cert in certificates {
@@ -48,7 +50,7 @@ impl Tunnel {
             .with_root_certificates(roots)
             .with_no_client_auth();
 
-        info!("Connecting auth_key={auth_key} ingress_id={ingress_id}");
+        info!("Connecting ingress_id={ingress_id}");
 
         Self::complete_handshake(
             Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?
@@ -60,41 +62,51 @@ impl Tunnel {
                 .await?,
             auth_key,
             ingress_id,
-            name,
+            tunnel_name,
         )
         .await
     }
 
     async fn complete_handshake(
         connection: Connection,
-        auth_key: &str,
-        ingress_id: &str,
-        name: &str,
-    ) -> anyhow::Result<Tunnel> {
+        auth_key: AuthKey,
+        ingress_id: IngressId,
+        tunnel_name: TunnelName,
+    ) -> Result<Tunnel, Error> {
         let (mut send, mut recv) = connection.open_bi().await?;
 
-        info!("Sending handshake auth_key={auth_key} ingress_id={ingress_id}");
+        info!("Sending handshake ingress_id={ingress_id}");
 
-        HandshakeV1Request::write(&mut send, auth_key, ingress_id, name).await?;
+        HandshakeV1Request::write(&mut send, &auth_key, &ingress_id, &tunnel_name).await?;
 
         let response = HandshakeV1Response::read(&mut recv).await?;
-        
+
         recv.read_to_end(0).await?;
 
         info!(
-            "Handshake complete ID={} auth_key={auth_key} ingress_id={ingress_id}.",
+            "Handshake complete ID={} ingress_id={ingress_id}.",
             response.id
         );
 
-        Ok(Tunnel::new(response.id, name, ingress_id, connection))
+        Ok(Tunnel::new(
+            response.id,
+            tunnel_name,
+            ingress_id,
+            connection,
+        ))
     }
 
-    fn new(id: Uuid, name: &str, ingress_id: &str, connection: Connection) -> Self {
+    fn new(
+        id: Uuid,
+        tunnel_name: TunnelName,
+        ingress_id: IngressId,
+        connection: Connection,
+    ) -> Self {
         Tunnel {
             inner: Arc::new(TunnelInner {
                 id,
-                name: name.to_string(),
-                ingress_id: ingress_id.to_string(),
+                tunnel_name,
+                ingress_id,
                 connection,
             }),
         }
@@ -104,11 +116,11 @@ impl Tunnel {
         self.id
     }
 
-    pub fn name(&self) -> &str {
-        &self.name
+    pub fn tunnel_name(&self) -> &TunnelName {
+        &self.tunnel_name
     }
 
-    pub fn ingress_id(&self) -> &str {
+    pub fn ingress_id(&self) -> &IngressId {
         &self.ingress_id
     }
 

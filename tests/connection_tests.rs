@@ -1,4 +1,4 @@
-use kipawa::{Server, Tunnel};
+use kipawa::{AuthKey, Error, IngressId, Server, Tunnel, TunnelName};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::OnceLock;
@@ -37,9 +37,9 @@ async fn test_handshake_v1_successful() {
         .unwrap();
 
     let tunnel = Tunnel::connect_with_certificates(
-        &auth_key,
-        "",
-        "",
+        AuthKey::try_from(auth_key).unwrap(),
+        IngressId::try_from("").unwrap(),
+        TunnelName::try_from("").unwrap(),
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port()),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
@@ -69,16 +69,16 @@ async fn test_handshake_v1_wrong_auth_key() {
         .unwrap();
 
     if let Err(e) = Tunnel::connect_with_certificates(
-        "wrong_auth_key",
-        "",
-        "",
+        AuthKey::try_from("wrong_auth_key").unwrap(),
+        IngressId::try_from("").unwrap(),
+        TunnelName::try_from("").unwrap(),
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port()),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
     )
     .await
     {
-        assert_eq!(e.to_string(), "");
+        matches!(e, Error::AuthKeyRejected);
         server.close().await;
     } else {
         server.close().await;

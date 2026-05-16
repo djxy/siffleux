@@ -1,6 +1,10 @@
 mod client;
+mod error;
 mod message;
 mod server;
+mod types;
 
 pub use client::Tunnel;
+pub use error::Error;
 pub use server::Server;
+pub use types::*;
