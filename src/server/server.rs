@@ -1,17 +1,16 @@
 use crate::error::Error;
 use crate::message::code::WRONG_AUTH_KEY;
 use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
-use crate::server::ingress::ingress::Ingress;
 use crate::server::server_tunnel::ServerTunnel;
-use crate::types::{AuthKey, IngressId, TunnelId};
+use crate::types::{AuthKey, TunnelId};
 use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
-use tokio::sync::RwLock;
+use tokio::sync::broadcast::{Receiver, Sender};
+use tokio::sync::{RwLock, broadcast};
 use tracing::info;
 
 #[derive(Clone)]
@@ -23,7 +22,7 @@ pub struct ServerInner {
     port: AtomicU16,
     auth_key: AuthKey,
     endpoint: RwLock<Option<Endpoint>>,
-    ingress_by_id: RwLock<HashMap<IngressId, Arc<dyn Ingress>>>,
+    on_new_tunnel_connected_sender: Sender<ServerTunnel>,
     id_counter: AtomicU64,
     server_config: ServerConfig,
 }
@@ -54,16 +53,22 @@ impl Server {
     }
 
     fn new(auth_key: AuthKey, server_config: ServerConfig) -> Server {
+        let (on_new_tunnel_connected_sender, _) = broadcast::channel::<ServerTunnel>(32);
+
         Server {
             inner: Arc::new(ServerInner {
                 auth_key,
                 port: AtomicU16::new(0),
                 endpoint: RwLock::new(None),
-                ingress_by_id: RwLock::new(HashMap::new()),
+                on_new_tunnel_connected_sender,
                 id_counter: AtomicU64::new(0),
                 server_config,
             }),
         }
+    }
+
+    pub fn subscribe_on_tunnel_connected(&self) -> Receiver<ServerTunnel> {
+        self.on_new_tunnel_connected_sender.subscribe()
     }
 
     pub fn port(&self) -> u16 {

@@ -1,9 +1,11 @@
+use crate::error::Error;
+use crate::server::Server;
 use crate::server::ingress::ingress::Ingress;
 use crate::server::server_tunnel::ServerTunnel;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use crate::error::Error;
+use tokio::task::JoinHandle;
 
 #[derive(Clone)]
 pub struct MockIngress {
@@ -11,7 +13,8 @@ pub struct MockIngress {
 }
 
 pub struct MockIngressInner {
-    tunnels_connected: RwLock<Vec<ServerTunnel>>,
+    tasks: RwLock<Vec<JoinHandle<()>>>,
+    pub tunnels_connected: RwLock<Vec<ServerTunnel>>,
 }
 
 impl Deref for MockIngress {
@@ -22,26 +25,30 @@ impl Deref for MockIngress {
     }
 }
 
+impl Default for MockIngress {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait::async_trait]
 impl Ingress for MockIngress {
-    fn on_tunnel_connected(&self, tunnel: ServerTunnel) {
-        let self_clone = self.clone();
+    async fn start(&self, server: &Server) -> Result<(), Error> {
+        let mut tasks = self.tasks.write().await;
 
-        tokio::spawn(async move {
-            self_clone
-                .inner
-                .tunnels_connected
-                .write()
-                .await
-                .push(tunnel);
-        });
+        tasks.push(self.listen_on_tunnel_connected(server));
+
+        Ok(())
     }
 
-    async fn start(&self) -> Result<(), Error> {
-        todo!()
-    }
+    async fn stop(&self, server: &Server) -> Result<(), Error> {
+        let mut tasks = self.tasks.write().await;
 
-    async fn stop(&self) -> Result<(), Error> {
-        todo!()
+        tasks.iter().for_each(|task| task.abort());
+
+        tasks.clear();
+
+        Ok(())
     }
 }
 
@@ -49,9 +56,20 @@ impl MockIngress {
     pub fn new() -> MockIngress {
         MockIngress {
             inner: Arc::new(MockIngressInner {
+                tasks: RwLock::new(Vec::new()),
                 tunnels_connected: RwLock::new(Vec::new()),
             }),
         }
     }
 
+    fn listen_on_tunnel_connected(&self, server: &Server) -> JoinHandle<()> {
+        let mut on_tunnel_connected = server.subscribe_on_tunnel_connected();
+        let self_clone = self.clone();
+
+        tokio::spawn(async move {
+            while let Ok(tunnel) = on_tunnel_connected.recv().await {
+                self_clone.tunnels_connected.write().await.push(tunnel);
+            }
+        })
+    }
 }
