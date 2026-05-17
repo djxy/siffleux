@@ -3,6 +3,7 @@ use crate::server::server_tunnel::ServerTunnel;
 use std::ops::Deref;
 use std::sync::Arc;
 use tokio::sync::RwLock;
+use crate::error::Error;
 
 #[derive(Clone)]
 pub struct MockIngress {
@@ -33,6 +34,14 @@ impl Ingress for MockIngress {
                 .await
                 .push(tunnel);
         });
+    }
+
+    async fn start(&self) -> Result<(), Error> {
+        todo!()
+    }
+
+    async fn stop(&self) -> Result<(), Error> {
+        todo!()
     }
 }
 

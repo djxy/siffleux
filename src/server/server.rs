@@ -1,10 +1,12 @@
 use crate::error::Error;
 use crate::message::code::WRONG_AUTH_KEY;
 use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
+use crate::server::ingress::ingress::Ingress;
 use crate::server::server_tunnel::ServerTunnel;
-use crate::types::{AuthKey, TunnelId};
+use crate::types::{AuthKey, IngressId, TunnelId};
 use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::ops::Deref;
 use std::sync::Arc;
@@ -20,9 +22,10 @@ pub struct Server {
 pub struct ServerInner {
     port: AtomicU16,
     auth_key: AuthKey,
-    server_config: ServerConfig,
     endpoint: RwLock<Option<Endpoint>>,
+    ingress_by_id: RwLock<HashMap<IngressId, Arc<dyn Ingress>>>,
     id_counter: AtomicU64,
+    server_config: ServerConfig,
 }
 
 impl Deref for Server {
@@ -54,10 +57,11 @@ impl Server {
         Server {
             inner: Arc::new(ServerInner {
                 auth_key,
-                server_config,
                 port: AtomicU16::new(0),
                 endpoint: RwLock::new(None),
+                ingress_by_id: RwLock::new(HashMap::new()),
                 id_counter: AtomicU64::new(0),
+                server_config,
             }),
         }
     }
@@ -126,14 +130,17 @@ impl Server {
                         handshake.ingress_id, handshake.tunnel_name
                     );
 
-                    let tunnel_id = TunnelId::new(self_clone.id_counter.fetch_add(1, Ordering::SeqCst));
+                    let tunnel_id =
+                        TunnelId::new(self_clone.id_counter.fetch_add(1, Ordering::SeqCst));
 
                     info!(
                         "Assign ID={} ingress_id={} name={}.",
                         tunnel_id, handshake.ingress_id, handshake.tunnel_name
                     );
 
-                    HandshakeV1Response::write(&mut send, tunnel_id).await.unwrap();
+                    HandshakeV1Response::write(&mut send, tunnel_id)
+                        .await
+                        .unwrap();
 
                     send.finish().unwrap();
 
