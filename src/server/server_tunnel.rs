@@ -16,14 +16,6 @@ pub struct ServerTunnelInner {
     connection: Connection,
 }
 
-impl Deref for ServerTunnel {
-    type Target = ServerTunnelInner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
-}
-
 impl ServerTunnel {
     pub fn new(
         id: TunnelId,
@@ -42,18 +34,18 @@ impl ServerTunnel {
     }
 
     pub fn id(&self) -> TunnelId {
-        self.id
+        self.inner.id
     }
 
     pub fn name(&self) -> &TunnelName {
-        &self.name
+        &self.inner.name
     }
 
     pub fn ingress_id(&self) -> &IngressId {
-        &self.ingress_id
+        &self.inner.ingress_id
     }
 
     pub fn connection(&self) -> &Connection {
-        &self.connection
+        &self.inner.connection
     }
 }

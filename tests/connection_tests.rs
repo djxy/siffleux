@@ -25,6 +25,7 @@ fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'stati
 async fn test_handshake_v1_successful() {
     let (cert_der, key) = init_crypto();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("123").unwrap();
 
     let server = Server::new_with_self_signed_certificate(
         auth_key.clone(),
@@ -38,9 +39,19 @@ async fn test_handshake_v1_successful() {
         .await
         .unwrap();
 
+    let server_clone = server.clone();
+
+    let server_tunnel_join_handle = tokio::spawn(async move {
+        server_clone
+            .subscribe_on_tunnel_connected()
+            .recv()
+            .await
+            .unwrap()
+    });
+
     let tunnel = Tunnel::connect_with_certificates(
         auth_key.clone(),
-        IngressId::try_from("").unwrap(),
+        ingress_id.clone(),
         TunnelName::try_from("").unwrap(),
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port()),
         SERVER_NAME.to_string(),
@@ -48,6 +59,15 @@ async fn test_handshake_v1_successful() {
     )
     .await
     .unwrap();
+
+    assert_eq!(
+        ingress_id,
+        server_tunnel_join_handle
+            .await
+            .unwrap()
+            .ingress_id()
+            .clone()
+    );
 
     tunnel.close();
 

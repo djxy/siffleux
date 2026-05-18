@@ -149,14 +149,19 @@ impl Server {
 
                     send.finish().unwrap();
 
-                    let tunnel_connection = Arc::new(ServerTunnel::new(
+                    let tunnel_connection = ServerTunnel::new(
                         tunnel_id,
                         handshake.tunnel_name,
                         handshake.ingress_id,
                         connection,
-                    ));
+                    );
 
-                    self_clone.handle_connection_close(tunnel_connection.clone());
+                    let _ = self_clone
+                        .inner
+                        .on_new_tunnel_connected_sender
+                        .send(tunnel_connection.clone());
+
+                    self_clone.handle_connection_close(tunnel_connection);
                 }
                 Err(e) => {
                     connection.close(VarInt::from_u32(1), b"TUNNEL_ID_ERROR");
@@ -167,7 +172,7 @@ impl Server {
         });
     }
 
-    fn handle_connection_close(&self, tunnel_connection: Arc<ServerTunnel>) {
+    fn handle_connection_close(&self, tunnel_connection: ServerTunnel) {
         tokio::spawn(async move {
             info!(
                 "tunnel_id={} closed: {:?}",
