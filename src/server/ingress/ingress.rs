@@ -1,9 +1,14 @@
-use crate::error::Error;
-use crate::server::Server;
+use crate::common::tunnel::Tunnel;
+use crate::common::types::IngressId;
+use crate::server::server::Server;
 
 #[async_trait::async_trait]
 pub trait Ingress: Send + Sync {
-    async fn start(&self, server: &Server) -> Result<(), Error>;
+    fn id(&self) -> &IngressId;
 
-    async fn stop(&self, server: &Server) -> Result<(), Error>;
+    fn assign_tunnel(&self, tunnel: Tunnel);
+
+    async fn start(&self, server: &Server);
+
+    async fn stop(&self, server: &Server);
 }

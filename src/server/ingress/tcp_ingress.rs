@@ -1,35 +1,54 @@
-use crate::error::Error;
-use crate::server::Server;
+use crate::common::tunnel::Tunnel;
+use crate::common::types::IngressId;
 use crate::server::ingress::ingress::Ingress;
+use crate::server::server::Server;
 use async_trait::async_trait;
-use std::sync::Arc;
+use tokio::sync::RwLock;
+use tokio::task::JoinHandle;
 
-#[derive(Clone)]
 pub struct TcpIngress {
-    inner: Arc<TcpIngressInner>,
-}
-
-pub struct TcpIngressInner {
-    port: u16,
+    id: IngressId,
+    tasks: RwLock<Vec<JoinHandle<()>>>,
 }
 
 #[async_trait]
 impl Ingress for TcpIngress {
-    async fn start(&self, server: &Server) -> Result<(), Error> {
-        todo!()
+    fn id(&self) -> &IngressId {
+        &self.id
     }
 
-    async fn stop(&self, server: &Server) -> Result<(), Error> {
-        todo!()
+    fn assign_tunnel(&self, _tunnel: Tunnel) {}
+
+    async fn start(&self, _server: &Server) {
+        let mut tasks = self.tasks.write().await;
+
+        if !tasks.is_empty() {
+            return;
+        }
+
+        tasks.push(self.start_listen());
+    }
+
+    async fn stop(&self, _server: &Server) {
+        let mut tasks = self.tasks.write().await;
+
+        tasks.iter().for_each(|t| t.abort());
+
+        *tasks = vec![];
     }
 }
 
 impl TcpIngress {
-    pub fn new(port: u16) -> Self {
+    pub fn new(id: IngressId) -> Self {
         Self {
-            inner: Arc::new(TcpIngressInner { port }),
+            id,
+            tasks: RwLock::new(Vec::new()),
         }
     }
 
-    async fn listen(&self) {}
+    fn start_listen(&self) -> JoinHandle<()> {
+        tokio::spawn(async move {
+            // Starting TCP socket
+        })
+    }
 }

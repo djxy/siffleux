@@ -1,10 +1,8 @@
-use crate::error::Error;
+use crate::common::error::Error;
 
 pub mod client;
-pub mod error;
-pub mod message;
+pub mod common;
 pub mod server;
-pub mod types;
 
 #[tokio::main]
 async fn main() -> Result<(), Error> {

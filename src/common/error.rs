@@ -1,7 +1,9 @@
-use crate::message::code::WRONG_AUTH_KEY;
+use crate::common::message::code::AUTH_KEY_REJECTED;
+use crate::common::types::IngressId;
 use quinn::crypto::rustls::NoInitialCipherSuite;
 use quinn::{ConnectError, ConnectionError, ReadError, ReadExactError, ReadToEndError, WriteError};
 use std::string::FromUtf8Error;
+use std::sync::PoisonError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
@@ -27,8 +29,20 @@ pub enum Error {
     #[error("The server is already listening")]
     ServerAlreadyListening,
 
+    #[error("The server is not listening")]
+    ServerNotListening,
+
+    #[error("Ingress ID {0} already assigned")]
+    IngressIDAlreadyAssigned(IngressId),
+
     #[error("Unknown error: {0}")]
     TLS(#[from] rustls::Error),
+
+    #[error("IO error: {0}")]
+    IO(Box<dyn std::error::Error + Send + Sync>),
+
+    #[error("Lock poisoned: {0}")]
+    PoisonLock(String),
 
     #[error("Unknown error: {0}")]
     Unknown(Box<dyn std::error::Error + Send + Sync>),
@@ -90,7 +104,7 @@ impl From<ConnectionError> for Error {
     fn from(connection_error: ConnectionError) -> Self {
         match connection_error {
             ConnectionError::ApplicationClosed(application_close)
-                if application_close.error_code == WRONG_AUTH_KEY.code =>
+                if application_close.error_code == AUTH_KEY_REJECTED.code =>
             {
                 Error::AuthKeyRejected
             }
@@ -108,7 +122,15 @@ impl From<FromUtf8Error> for Error {
 impl From<std::io::Error> for Error {
     fn from(io_error: std::io::Error) -> Self {
         match io_error {
-            _ => Error::Unknown(io_error.into()),
+            _ => Error::IO(io_error.into()),
+        }
+    }
+}
+
+impl<T> From<PoisonError<T>> for Error {
+    fn from(poison_error: PoisonError<T>) -> Self {
+        match poison_error {
+            _ => Error::PoisonLock(poison_error.to_string()),
         }
     }
 }

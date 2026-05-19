@@ -1,15 +1,15 @@
-use crate::error::Error;
-use crate::message::code::WRONG_AUTH_KEY;
-use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
-use crate::server::server_tunnel::ServerTunnel;
-use crate::types::{AuthKey, TunnelId};
+use crate::common::error::Error;
+use crate::common::message::code::{AUTH_KEY_REJECTED, INGRESS_ID_REJECTED};
+use crate::common::message::handshake::{HandshakeV1Request, HandshakeV1Response};
+use crate::common::tunnel::Tunnel;
+use crate::common::types::{AuthKey, IngressId, TunnelId};
+use crate::server::ingress::ingress::Ingress;
 use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
-use tokio::sync::broadcast::{Receiver, Sender};
-use tokio::sync::{RwLock, broadcast};
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, RwLock};
 use tracing::info;
 
 #[derive(Clone)]
@@ -17,12 +17,11 @@ pub struct Server {
     inner: Arc<ServerInner>,
 }
 
-pub struct ServerInner {
-    port: AtomicU16,
+struct ServerInner {
     auth_key: AuthKey,
-    endpoint: RwLock<Option<Endpoint>>,
-    on_new_tunnel_connected_sender: Sender<ServerTunnel>,
-    id_counter: AtomicU64,
+    endpoint: Mutex<Option<Endpoint>>,
+    ingress_by_id: RwLock<HashMap<IngressId, Arc<dyn Ingress>>>,
+    tunnel_id_counter: AtomicU64,
     server_config: ServerConfig,
 }
 
@@ -44,40 +43,48 @@ impl Server {
     }
 
     fn new(auth_key: AuthKey, server_config: ServerConfig) -> Server {
-        let (on_new_tunnel_connected_sender, _) = broadcast::channel::<ServerTunnel>(32);
-
         Server {
             inner: Arc::new(ServerInner {
                 auth_key,
-                port: AtomicU16::new(0),
-                endpoint: RwLock::new(None),
-                on_new_tunnel_connected_sender,
-                id_counter: AtomicU64::new(0),
+                endpoint: Mutex::new(None),
+                ingress_by_id: RwLock::new(HashMap::new()),
+                tunnel_id_counter: AtomicU64::new(0),
                 server_config,
             }),
         }
     }
 
-    pub fn subscribe_on_tunnel_connected(&self) -> Receiver<ServerTunnel> {
-        self.inner.on_new_tunnel_connected_sender.subscribe()
+    pub fn assign_ingress(&self, ingress: Arc<dyn Ingress>) -> Result<(), Error> {
+        let mut ingress_by_id = self.inner.ingress_by_id.write()?;
+
+        if ingress_by_id.contains_key(&ingress.id()) {
+            return Err(Error::IngressIDAlreadyAssigned(ingress.id().clone()));
+        }
+
+        ingress_by_id.insert(ingress.id().clone(), ingress);
+
+        Ok(())
     }
 
-    pub fn port(&self) -> u16 {
-        self.inner.port.load(Ordering::SeqCst)
+    pub fn address(&self) -> Result<SocketAddr, Error> {
+        self.inner
+            .endpoint
+            .lock()?
+            .as_ref()
+            .ok_or(Error::ServerNotListening)?
+            .local_addr()
+            .map_err(Error::from)
     }
 
     pub async fn listen(&self, socket_addr: SocketAddr) -> Result<(), Error> {
         let endpoint = {
-            let mut endpoint_guard = self.inner.endpoint.write().await;
+            let mut endpoint_guard = self.inner.endpoint.lock()?;
 
             if endpoint_guard.is_some() {
                 return Err(Error::ServerAlreadyListening);
             }
 
             let endpoint = Endpoint::server(self.inner.server_config.clone(), socket_addr)?;
-
-            self.inner.port
-                .store(endpoint.local_addr()?.port(), Ordering::SeqCst);
 
             *endpoint_guard = Some(endpoint.clone());
             endpoint
@@ -94,9 +101,13 @@ impl Server {
         Ok(())
     }
 
-    pub async fn close(&self) {
-        if let Some(endpoint) = self.inner.endpoint.write().await.take() {
+    pub async fn close(&self) -> Result<(), Error> {
+        if let Some(endpoint) = self.inner.endpoint.lock()?.take() {
             endpoint.close(VarInt::from_u32(0), b"done");
+
+            Ok(())
+        } else {
+            Err(Error::ServerNotListening)
         }
     }
 
@@ -117,7 +128,7 @@ impl Server {
                     let handshake = HandshakeV1Request::read(&mut recv).await.unwrap();
 
                     if handshake.auth_key != self_clone.inner.auth_key {
-                        connection.close(WRONG_AUTH_KEY.code, WRONG_AUTH_KEY.reason);
+                        connection.close(AUTH_KEY_REJECTED.code, AUTH_KEY_REJECTED.reason);
                         return;
                     }
 
@@ -126,8 +137,24 @@ impl Server {
                         handshake.ingress_id, handshake.tunnel_name
                     );
 
-                    let tunnel_id =
-                        TunnelId::new(self_clone.inner.id_counter.fetch_add(1, Ordering::SeqCst));
+                    let Some(ingress) = self_clone
+                        .inner
+                        .ingress_by_id
+                        .read()
+                        .unwrap()
+                        .get(&handshake.ingress_id)
+                        .cloned()
+                    else {
+                        connection.close(INGRESS_ID_REJECTED.code, INGRESS_ID_REJECTED.reason);
+                        return;
+                    };
+
+                    let tunnel_id = TunnelId::new(
+                        self_clone
+                            .inner
+                            .tunnel_id_counter
+                            .fetch_add(1, Ordering::SeqCst),
+                    );
 
                     info!(
                         "Assign ID={} ingress_id={} name={}.",
@@ -140,19 +167,12 @@ impl Server {
 
                     send.finish().unwrap();
 
-                    let tunnel_connection = ServerTunnel::new(
+                    ingress.assign_tunnel(Tunnel::new(
                         tunnel_id,
                         handshake.tunnel_name,
-                        handshake.ingress_id,
+                        handshake.ingress_id.clone(),
                         connection,
-                    );
-
-                    let _ = self_clone
-                        .inner
-                        .on_new_tunnel_connected_sender
-                        .send(tunnel_connection.clone());
-
-                    self_clone.handle_connection_close(tunnel_connection);
+                    ));
                 }
                 Err(e) => {
                     connection.close(VarInt::from_u32(1), b"TUNNEL_ID_ERROR");
@@ -160,16 +180,6 @@ impl Server {
                     return;
                 }
             }
-        });
-    }
-
-    fn handle_connection_close(&self, tunnel_connection: ServerTunnel) {
-        tokio::spawn(async move {
-            info!(
-                "tunnel_id={} closed: {:?}",
-                tunnel_connection.id(),
-                tunnel_connection.connection().closed().await
-            );
         });
     }
 }

@@ -1,4 +1,4 @@
-use crate::error::Error;
+use crate::common::error::Error;
 use std::fmt::{Display, Formatter};
 
 const AUTH_KEY_MAX_LENGTH: usize = 255;

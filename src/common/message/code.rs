@@ -1,0 +1,21 @@
+use quinn::VarInt;
+
+pub struct Code {
+    pub code: VarInt,
+    pub reason: &'static [u8],
+}
+
+pub const CLOSED: Code = Code {
+    code: VarInt::from_u32(0),
+    reason: b"done",
+};
+
+pub const AUTH_KEY_REJECTED: Code = Code {
+    code: VarInt::from_u32(1),
+    reason: b"auth key rejected",
+};
+
+pub const INGRESS_ID_REJECTED: Code = Code {
+    code: VarInt::from_u32(2),
+    reason: b"ingress id rejected",
+};

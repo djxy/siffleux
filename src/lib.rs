@@ -1,12 +1,11 @@
 mod client;
-mod error;
-mod message;
+mod common;
 mod server;
-mod types;
-
-pub use client::Tunnel;
-pub use error::Error;
-pub use message::code::*;
-pub use server::Server;
+pub use client::client::Client;
+pub use common::error::Error;
+pub use common::message::*;
+pub use common::tunnel::Tunnel;
+pub use common::tunnel_stream::TunnelStream;
+pub use common::types::*;
 pub use server::ingress::*;
-pub use types::*;
+pub use server::server::Server;

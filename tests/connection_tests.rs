@@ -1,12 +1,43 @@
-use kipawa::{AuthKey, CLOSED, Error, IngressId, Server, Tunnel, TunnelName};
-use quinn::ConnectionError;
+use async_trait::async_trait;
+use kipawa::code::CLOSED;
+use kipawa::ingress::Ingress;
+use kipawa::{AuthKey, Client, Error, IngressId, Server, Tunnel, TunnelId, TunnelName};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::OnceLock;
+use std::sync::{Arc, Mutex, OnceLock};
 
 static CRYPTO: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>)> = OnceLock::new();
 
 static SERVER_NAME: &'static str = "localhost";
+
+struct MockIngress {
+    id: IngressId,
+    tunnels: Mutex<Vec<Tunnel>>,
+}
+
+impl MockIngress {
+    fn new(id: IngressId) -> Self {
+        Self {
+            id,
+            tunnels: Mutex::new(vec![]),
+        }
+    }
+}
+
+#[async_trait]
+impl Ingress for MockIngress {
+    fn id(&self) -> &IngressId {
+        &self.id
+    }
+
+    fn assign_tunnel(&self, tunnel: Tunnel) {
+        self.tunnels.lock().unwrap().push(tunnel);
+    }
+
+    async fn start(&self, _server: &Server) {}
+
+    async fn stop(&self, _server: &Server) {}
+}
 
 fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>) {
     CRYPTO.get_or_init(|| {
@@ -23,11 +54,10 @@ fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'stati
 }
 
 #[tokio::test]
-async fn test_handshake_v1_successful() {
+async fn test_multiple_handshake_v1_successful() {
     let (cert_der, key) = init_crypto();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
-    let tunnel_name = TunnelName::try_from("name").unwrap();
 
     let server = Server::new_with_self_signed_certificate(
         auth_key.clone(),
@@ -41,39 +71,38 @@ async fn test_handshake_v1_successful() {
         .await
         .unwrap();
 
-    let server_clone = server.clone();
+    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
 
-    let server_tunnel_join_handle = tokio::spawn(async move {
-        server_clone
-            .subscribe_on_tunnel_connected()
-            .recv()
-            .await
-            .unwrap()
-    });
+    server.assign_ingress(mock_ingress.clone()).unwrap();
 
-    let tunnel = Tunnel::connect_with_certificates(
-        auth_key.clone(),
-        ingress_id.clone(),
-        tunnel_name.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port()),
-        SERVER_NAME.to_string(),
-        vec![cert_der.clone()],
-    )
-    .await
-    .unwrap();
+    for i in 0..3 {
+        let tunnel_name = TunnelName::try_from(format!("name-{i}")).unwrap();
 
-    tunnel.connection().close(CLOSED.code, CLOSED.reason);
+        let client = Client::connect_with_certificates(
+            auth_key.clone(),
+            ingress_id.clone(),
+            tunnel_name.clone(),
+            SocketAddr::new(
+                IpAddr::V4(Ipv4Addr::LOCALHOST),
+                server.address().unwrap().port(),
+            ),
+            SERVER_NAME.to_string(),
+            vec![cert_der.clone()],
+        )
+        .await
+        .unwrap();
 
-    server.close().await;
+        client.tunnel().close(&CLOSED);
 
-    let server_tunnel = server_tunnel_join_handle.await.unwrap();
+        let tunnel = mock_ingress.tunnels.lock().unwrap().pop().unwrap();
+        let tunnel_state = tunnel.state();
 
-    assert_eq!(ingress_id, server_tunnel.ingress_id().clone());
-    assert_eq!(tunnel_name, server_tunnel.name().clone());
-    matches!(
-        server_tunnel.connection().closed().await,
-        ConnectionError::ApplicationClosed(_)
-    );
+        assert_eq!(TunnelId::new(i), tunnel_state.id());
+        assert_eq!(ingress_id, tunnel_state.ingress_id().clone());
+        assert_eq!(tunnel_name, tunnel_state.name().clone());
+    }
+
+    server.close().await.unwrap();
 }
 
 #[tokio::test]
@@ -92,20 +121,23 @@ async fn test_handshake_v1_wrong_auth_key() {
         .await
         .unwrap();
 
-    if let Err(e) = Tunnel::connect_with_certificates(
+    if let Err(e) = Client::connect_with_certificates(
         AuthKey::try_from("wrong_auth_key").unwrap(),
         IngressId::try_from("").unwrap(),
         TunnelName::try_from("").unwrap(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), server.port()),
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            server.address().unwrap().port(),
+        ),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
     )
     .await
     {
         matches!(e, Error::AuthKeyRejected);
-        server.close().await;
+        server.close().await.unwrap();
     } else {
-        server.close().await;
+        server.close().await.unwrap();
         panic!("Should not authenticate.");
     }
 }

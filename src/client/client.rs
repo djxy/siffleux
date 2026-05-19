@@ -1,6 +1,7 @@
-use crate::error::Error;
-use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
-use crate::types::{AuthKey, IngressId, TunnelId, TunnelName};
+use crate::common::error::Error;
+use crate::common::message::handshake::{HandshakeV1Request, HandshakeV1Response};
+use crate::common::tunnel::Tunnel;
+use crate::common::types::{AuthKey, IngressId, TunnelId, TunnelName};
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Connection, Endpoint};
 use rustls::RootCertStore;
@@ -10,18 +11,15 @@ use std::sync::Arc;
 use tracing::info;
 
 #[derive(Clone)]
-pub struct Tunnel {
-    inner: Arc<TunnelInner>,
+pub struct Client {
+    inner: Arc<ClientInner>,
 }
 
-pub struct TunnelInner {
-    id: TunnelId,
-    name: TunnelName,
-    ingress_id: IngressId,
-    connection: Connection,
+struct ClientInner {
+    tunnel: Tunnel,
 }
 
-impl Tunnel {
+impl Client {
     pub async fn connect_with_certificates(
         auth_key: AuthKey,
         ingress_id: IngressId,
@@ -29,7 +27,7 @@ impl Tunnel {
         server_address: SocketAddr,
         server_name: String,
         certificates: Vec<CertificateDer<'static>>,
-    ) -> Result<Tunnel, Error> {
+    ) -> Result<Client, Error> {
         let mut roots = RootCertStore::empty();
 
         for cert in certificates {
@@ -62,7 +60,7 @@ impl Tunnel {
         auth_key: AuthKey,
         ingress_id: IngressId,
         name: TunnelName,
-    ) -> Result<Tunnel, Error> {
+    ) -> Result<Client, Error> {
         let (mut send, mut recv) = connection.open_bi().await?;
 
         info!("Sending handshake ingress_id={ingress_id}");
@@ -78,7 +76,7 @@ impl Tunnel {
             response.tunnel_id
         );
 
-        Ok(Tunnel::new(
+        Ok(Client::new(
             response.tunnel_id,
             name,
             ingress_id,
@@ -87,29 +85,14 @@ impl Tunnel {
     }
 
     fn new(id: TunnelId, name: TunnelName, ingress_id: IngressId, connection: Connection) -> Self {
-        Tunnel {
-            inner: Arc::new(TunnelInner {
-                id,
-                name,
-                ingress_id,
-                connection,
+        Client {
+            inner: Arc::new(ClientInner {
+                tunnel: Tunnel::new(id, name, ingress_id, connection),
             }),
         }
     }
 
-    pub fn id(&self) -> TunnelId {
-        self.inner.id
-    }
-
-    pub fn name(&self) -> &TunnelName {
-        &self.inner.name
-    }
-
-    pub fn ingress_id(&self) -> &IngressId {
-        &self.inner.ingress_id
-    }
-
-    pub fn connection(&self) -> &Connection {
-        &self.inner.connection
+    pub fn tunnel(&self) -> &Tunnel {
+        &self.inner.tunnel
     }
 }
