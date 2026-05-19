@@ -1,6 +1,5 @@
 use crate::types::{IngressId, TunnelId, TunnelName};
 use quinn::Connection;
-use std::ops::Deref;
 use std::sync::Arc;
 
 /// Tunnel representation on the server.
