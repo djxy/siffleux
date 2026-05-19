@@ -1,4 +1,4 @@
-use kipawa::{AuthKey, Error, IngressId, Server, Tunnel, TunnelName};
+use kipawa::{AuthKey, CLOSED, Error, IngressId, Server, Tunnel, TunnelName};
 use quinn::ConnectionError;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -62,7 +62,7 @@ async fn test_handshake_v1_successful() {
     .await
     .unwrap();
 
-    tunnel.close();
+    tunnel.connection().close(CLOSED.code, CLOSED.reason);
 
     server.close().await;
 

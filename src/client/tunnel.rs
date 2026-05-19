@@ -2,11 +2,10 @@ use crate::error::Error;
 use crate::message::handshake::{HandshakeV1Request, HandshakeV1Response};
 use crate::types::{AuthKey, IngressId, TunnelId, TunnelName};
 use quinn::crypto::rustls::QuicClientConfig;
-use quinn::{ClientConfig, Connection, Endpoint, VarInt};
+use quinn::{ClientConfig, Connection, Endpoint};
 use rustls::RootCertStore;
 use rustls::pki_types::CertificateDer;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::ops::Deref;
 use std::sync::Arc;
 use tracing::info;
 
@@ -20,14 +19,6 @@ pub struct TunnelInner {
     name: TunnelName,
     ingress_id: IngressId,
     connection: Connection,
-}
-
-impl Deref for Tunnel {
-    type Target = TunnelInner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
 }
 
 impl Tunnel {
@@ -95,12 +86,7 @@ impl Tunnel {
         ))
     }
 
-    fn new(
-        id: TunnelId,
-        name: TunnelName,
-        ingress_id: IngressId,
-        connection: Connection,
-    ) -> Self {
+    fn new(id: TunnelId, name: TunnelName, ingress_id: IngressId, connection: Connection) -> Self {
         Tunnel {
             inner: Arc::new(TunnelInner {
                 id,
@@ -112,22 +98,18 @@ impl Tunnel {
     }
 
     pub fn id(&self) -> TunnelId {
-        self.id
+        self.inner.id
     }
 
     pub fn name(&self) -> &TunnelName {
-        &self.name
+        &self.inner.name
     }
 
     pub fn ingress_id(&self) -> &IngressId {
-        &self.ingress_id
+        &self.inner.ingress_id
     }
 
     pub fn connection(&self) -> &Connection {
-        &self.connection
-    }
-
-    pub fn close(&self) {
-        self.connection.close(VarInt::from_u32(0), b"done");
+        &self.inner.connection
     }
 }

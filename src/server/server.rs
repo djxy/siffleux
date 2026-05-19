@@ -6,7 +6,6 @@ use crate::types::{AuthKey, TunnelId};
 use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::net::SocketAddr;
-use std::ops::Deref;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU16, AtomicU64, Ordering};
 use tokio::sync::broadcast::{Receiver, Sender};
@@ -25,14 +24,6 @@ pub struct ServerInner {
     on_new_tunnel_connected_sender: Sender<ServerTunnel>,
     id_counter: AtomicU64,
     server_config: ServerConfig,
-}
-
-impl Deref for Server {
-    type Target = ServerInner;
-
-    fn deref(&self) -> &Self::Target {
-        &self.inner
-    }
 }
 
 impl Server {
@@ -68,24 +59,24 @@ impl Server {
     }
 
     pub fn subscribe_on_tunnel_connected(&self) -> Receiver<ServerTunnel> {
-        self.on_new_tunnel_connected_sender.subscribe()
+        self.inner.on_new_tunnel_connected_sender.subscribe()
     }
 
     pub fn port(&self) -> u16 {
-        self.port.load(Ordering::SeqCst)
+        self.inner.port.load(Ordering::SeqCst)
     }
 
     pub async fn listen(&self, socket_addr: SocketAddr) -> Result<(), Error> {
         let endpoint = {
-            let mut endpoint_guard = self.endpoint.write().await;
+            let mut endpoint_guard = self.inner.endpoint.write().await;
 
             if endpoint_guard.is_some() {
                 return Err(Error::ServerAlreadyListening);
             }
 
-            let endpoint = Endpoint::server(self.server_config.clone(), socket_addr)?;
+            let endpoint = Endpoint::server(self.inner.server_config.clone(), socket_addr)?;
 
-            self.port
+            self.inner.port
                 .store(endpoint.local_addr()?.port(), Ordering::SeqCst);
 
             *endpoint_guard = Some(endpoint.clone());
@@ -104,7 +95,7 @@ impl Server {
     }
 
     pub async fn close(&self) {
-        if let Some(endpoint) = self.endpoint.write().await.take() {
+        if let Some(endpoint) = self.inner.endpoint.write().await.take() {
             endpoint.close(VarInt::from_u32(0), b"done");
         }
     }
@@ -125,7 +116,7 @@ impl Server {
                 Ok((mut send, mut recv)) => {
                     let handshake = HandshakeV1Request::read(&mut recv).await.unwrap();
 
-                    if handshake.auth_key != self_clone.auth_key {
+                    if handshake.auth_key != self_clone.inner.auth_key {
                         connection.close(WRONG_AUTH_KEY.code, WRONG_AUTH_KEY.reason);
                         return;
                     }
@@ -136,7 +127,7 @@ impl Server {
                     );
 
                     let tunnel_id =
-                        TunnelId::new(self_clone.id_counter.fetch_add(1, Ordering::SeqCst));
+                        TunnelId::new(self_clone.inner.id_counter.fetch_add(1, Ordering::SeqCst));
 
                     info!(
                         "Assign ID={} ingress_id={} name={}.",
