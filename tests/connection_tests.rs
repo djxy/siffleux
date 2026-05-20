@@ -56,6 +56,70 @@ fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'stati
 }
 
 #[tokio::test]
+async fn test_send_data_over_tunnel_stream() {
+    let (cert_der, key) = init_crypto();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+
+    let server = Server::new_with_self_signed_certificate(
+        auth_key.clone(),
+        cert_der.clone(),
+        key.clone_key(),
+    )
+    .unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+        .await
+        .unwrap();
+
+    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
+
+    server.assign_ingress(mock_ingress.clone()).unwrap();
+
+    let client = Client::connect_with_certificates(
+        auth_key.clone(),
+        ingress_id.clone(),
+        TunnelName::try_from("").unwrap(),
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            server.address().unwrap().port(),
+        ),
+        SERVER_NAME.to_string(),
+        vec![cert_der.clone()],
+    )
+    .await
+    .unwrap();
+
+    let server_tunnel = mock_ingress.tunnels.lock().unwrap().pop().unwrap();
+
+    let value: u64 = 6329282199514132237;
+
+    let client_handle = tokio::spawn(async move {
+        let client_tunnel = client.tunnel();
+        let mut buffer = [0u8; 16];
+        let (mut client_read_stream, _) = client_tunnel.accept_stream().await.unwrap();
+        let size_opt = client_read_stream.read(&mut buffer[..8]).await.unwrap();
+
+        let value_received = u64::from_be_bytes(buffer[..size_opt.unwrap()].try_into().unwrap());
+
+        assert_eq!(8, client_tunnel.state().bytes_received());
+
+        value_received
+    });
+
+    let (_, mut server_send_stream) = server_tunnel.create_stream().await.unwrap();
+
+    server_send_stream.write(&mut value.to_be_bytes()).await.unwrap();
+
+    assert_eq!(8, server_tunnel.state().bytes_sent());
+
+    assert_eq!(value, client_handle.await.unwrap());
+
+    server.close().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_multiple_handshake_v1_successful() {
     let (cert_der, key) = init_crypto();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
@@ -111,7 +175,44 @@ async fn test_multiple_handshake_v1_successful() {
 }
 
 #[tokio::test]
-async fn test_handshake_v1_wrong_auth_key() {
+async fn test_handshake_v1_rejected_ingress_id() {
+    let (cert_der, key) = init_crypto();
+
+    let server = Server::new_with_self_signed_certificate(
+        AuthKey::try_from("valid_auth_key").unwrap(),
+        cert_der.clone(),
+        key.clone_key(),
+    )
+    .unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+        .await
+        .unwrap();
+
+    if let Err(e) = Client::connect_with_certificates(
+        AuthKey::try_from("valid_auth_key").unwrap(),
+        IngressId::try_from("").unwrap(),
+        TunnelName::try_from("").unwrap(),
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            server.address().unwrap().port(),
+        ),
+        SERVER_NAME.to_string(),
+        vec![cert_der.clone()],
+    )
+    .await
+    {
+        matches!(e, Error::IngressIdRejected);
+        server.close().await.unwrap();
+    } else {
+        server.close().await.unwrap();
+        panic!("Should not connect.");
+    }
+}
+
+#[tokio::test]
+async fn test_handshake_v1_rejected_auth_key() {
     let (cert_der, key) = init_crypto();
 
     let server = Server::new_with_self_signed_certificate(

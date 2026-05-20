@@ -1,4 +1,4 @@
-use crate::common::message::code::{AUTH_KEY_REJECTED, CLOSED};
+use crate::common::message::code::{AUTH_KEY_REJECTED, CLOSED, INGRESS_ID_REJECTED};
 use crate::common::types::IngressId;
 use quinn::crypto::rustls::NoInitialCipherSuite;
 use quinn::{ConnectError, ConnectionError, ReadError, ReadExactError, ReadToEndError, WriteError};
@@ -13,6 +13,9 @@ pub enum Error {
 
     #[error("Auth key rejected.")]
     AuthKeyRejected,
+
+    #[error("Ingress Id rejected.")]
+    IngressIdRejected,
 
     #[error("Invalid auth_key reason={reason}")]
     InvalidAuthKey { reason: String },
@@ -109,6 +112,7 @@ impl From<ConnectionError> for Error {
             ConnectionError::ApplicationClosed(ac) => match ac.error_code {
                 c if c == CLOSED.code => Error::ClosedSuccessfully,
                 c if c == AUTH_KEY_REJECTED.code => Error::AuthKeyRejected,
+                c if c == INGRESS_ID_REJECTED.code => Error::IngressIdRejected,
                 _ => Error::Unknown(ConnectionError::ApplicationClosed(ac).into()),
             },
             _ => Error::Unknown(connection_error.into()),
