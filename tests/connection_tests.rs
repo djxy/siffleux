@@ -5,6 +5,8 @@ use kipawa::{AuthKey, Client, Error, IngressId, Server, Tunnel, TunnelId, Tunnel
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, OnceLock};
+use std::time::Duration;
+use tokio::time::sleep;
 
 static CRYPTO: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>)> = OnceLock::new();
 
@@ -94,12 +96,15 @@ async fn test_multiple_handshake_v1_successful() {
 
         client.tunnel().close(&CLOSED);
 
-        let tunnel = mock_ingress.tunnels.lock().unwrap().pop().unwrap();
-        let tunnel_state = tunnel.state();
+        sleep(Duration::from_millis(10)).await;
 
-        assert_eq!(TunnelId::new(i), tunnel_state.id());
-        assert_eq!(ingress_id, tunnel_state.ingress_id().clone());
-        assert_eq!(tunnel_name, tunnel_state.name().clone());
+        let server_tunnel = mock_ingress.tunnels.lock().unwrap().pop().unwrap();
+        let server_tunnel_state = server_tunnel.state();
+
+        assert_eq!(TunnelId::new(i), server_tunnel_state.id());
+        assert_eq!(ingress_id, server_tunnel_state.ingress_id().clone());
+        assert_eq!(tunnel_name, server_tunnel_state.name().clone());
+        assert_eq!(true, server_tunnel_state.is_closed());
     }
 
     server.close().await.unwrap();

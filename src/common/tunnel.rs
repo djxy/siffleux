@@ -2,8 +2,8 @@ use crate::common::error::Error;
 use crate::common::message::code::Code;
 use crate::common::tunnel_stream::TunnelStream;
 use crate::common::types::{IngressId, TunnelId, TunnelName};
-use quinn::{Connection, ConnectionError};
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use quinn::Connection;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
 pub struct Tunnel {
@@ -22,7 +22,7 @@ struct TunnelStateInner {
     ingress_id: IngressId,
     bytes_sent: AtomicU64,
     bytes_received: AtomicU64,
-    is_closed: RwLock<Option<ConnectionError>>,
+    is_closed: RwLock<Option<Error>>,
 }
 
 impl Tunnel {
@@ -38,11 +38,7 @@ impl Tunnel {
     }
 
     pub fn start_hooks(&self) {
-        let connection = self.connection.clone();
-
-        tokio::spawn(async move {
-            let reason = connection.clone().closed().await;
-        });
+        self.start_close_hook();
     }
 
     pub fn state(&self) -> &TunnelState {
@@ -57,6 +53,16 @@ impl Tunnel {
         let (send, recv) = self.connection.open_bi().await?;
 
         Ok(TunnelStream::new(send, recv))
+    }
+
+    fn start_close_hook(&self) {
+        let state = self.state.clone();
+        let connection = self.connection.clone();
+
+        tokio::spawn(async move {
+            let reason = connection.clone().closed().await;
+            let _ = state.inner.is_closed.write().unwrap().insert(reason.into());
+        });
     }
 }
 
@@ -94,7 +100,7 @@ impl TunnelState {
         self.inner.bytes_received.load(Ordering::Relaxed)
     }
 
-    pub fn is_closed(&self) -> bool {
-        self.inner.is_closed.read().unwrap().is_some()
+    pub fn is_closed(&self) -> Option<Error> {
+        self.inner.is_closed.read().unwrap()
     }
 }

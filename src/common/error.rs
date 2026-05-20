@@ -1,4 +1,4 @@
-use crate::common::message::code::AUTH_KEY_REJECTED;
+use crate::common::message::code::{AUTH_KEY_REJECTED, CLOSED};
 use crate::common::types::IngressId;
 use quinn::crypto::rustls::NoInitialCipherSuite;
 use quinn::{ConnectError, ConnectionError, ReadError, ReadExactError, ReadToEndError, WriteError};
@@ -8,6 +8,9 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("Closed successfully")]
+    ClosedSuccessfully,
+
     #[error("Auth key rejected.")]
     AuthKeyRejected,
 
@@ -103,11 +106,11 @@ impl From<NoInitialCipherSuite> for Error {
 impl From<ConnectionError> for Error {
     fn from(connection_error: ConnectionError) -> Self {
         match connection_error {
-            ConnectionError::ApplicationClosed(application_close)
-                if application_close.error_code == AUTH_KEY_REJECTED.code =>
-            {
-                Error::AuthKeyRejected
-            }
+            ConnectionError::ApplicationClosed(ac) => match ac.error_code {
+                c if c == CLOSED.code => Error::ClosedSuccessfully,
+                c if c == AUTH_KEY_REJECTED.code => Error::AuthKeyRejected,
+                _ => Error::Unknown(ConnectionError::ApplicationClosed(ac).into()),
+            },
             _ => Error::Unknown(connection_error.into()),
         }
     }

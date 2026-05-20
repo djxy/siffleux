@@ -167,12 +167,16 @@ impl Server {
 
                     send.finish().unwrap();
 
-                    ingress.assign_tunnel(Tunnel::new(
+                    let tunnel = Tunnel::new(
                         tunnel_id,
                         handshake.tunnel_name,
                         handshake.ingress_id.clone(),
                         connection,
-                    ));
+                    );
+
+                    tunnel.start_hooks();
+
+                    ingress.assign_tunnel(tunnel);
                 }
                 Err(e) => {
                     connection.close(VarInt::from_u32(1), b"TUNNEL_ID_ERROR");
