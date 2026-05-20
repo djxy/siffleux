@@ -56,7 +56,7 @@ fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'stati
 }
 
 #[tokio::test]
-async fn test_send_data_over_tunnel_stream() {
+async fn test_send_data_over_stream() {
     let (cert_der, key) = init_crypto();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
