@@ -124,6 +124,11 @@ impl SendStream {
         SendStream { stream, tunnel }
     }
 
+    /// Write a buffer into this stream, returning how many bytes were written
+    ///
+    /// # Cancel safety
+    ///
+    /// This method is cancellation safe. If this does not resolve, no bytes were written.
     pub async fn write(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
         let size = self.stream.write(buf).await?;
 
