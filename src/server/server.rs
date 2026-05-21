@@ -173,9 +173,7 @@ impl Server {
                         handshake.ingress_id.clone(),
                         connection,
                     );
-
-                    tunnel.start_hooks();
-
+                    
                     ingress.assign_tunnel(tunnel);
                 }
                 Err(e) => {

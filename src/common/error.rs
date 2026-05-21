@@ -32,10 +32,16 @@ pub enum Error {
     #[error("Invalid data: {0}")]
     InvalidData(Box<dyn std::error::Error + Send + Sync>),
 
-    #[error("The server is already listening")]
+    #[error("Ingress is already listening")]
+    IngressAlreadyListening,
+
+    #[error("Ingress is not listening")]
+    IngressNotListening,
+
+    #[error("Server is already listening")]
     ServerAlreadyListening,
 
-    #[error("The server is not listening")]
+    #[error("Server is not listening")]
     ServerNotListening,
 
     #[error("Ingress ID {0} already assigned")]

@@ -36,9 +36,13 @@ impl Ingress for MockIngress {
         self.tunnels.lock().unwrap().push(tunnel);
     }
 
-    async fn start(&self, _server: &Server) {}
+    async fn start(&self, _server: &Server) -> Result<(), Error> {
+        Ok(())
+    }
 
-    async fn stop(&self, _server: &Server) {}
+    async fn stop(&self, _server: &Server) -> Result<(), Error> {
+        Ok(())
+    }
 }
 
 fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>) {
@@ -53,6 +57,59 @@ fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'stati
 
         (cert_der, key)
     })
+}
+
+#[tokio::test]
+async fn test_detect_tunnel_closed() {
+    let (cert_der, key) = init_crypto();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+
+    let server = Server::new_with_self_signed_certificate(
+        auth_key.clone(),
+        cert_der.clone(),
+        key.clone_key(),
+    )
+    .unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+        .await
+        .unwrap();
+
+    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
+
+    server.assign_ingress(mock_ingress.clone()).unwrap();
+
+    let client = Client::connect_with_certificates(
+        auth_key.clone(),
+        ingress_id.clone(),
+        TunnelName::try_from("").unwrap(),
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            server.address().unwrap().port(),
+        ),
+        SERVER_NAME.to_string(),
+        vec![cert_der.clone()],
+    )
+    .await
+    .unwrap();
+
+    let client_tunnel_close_1 = client.tunnel().clone();
+    let client_tunnel_close_2 = client.tunnel().clone();
+
+    let close_handle_1 = tokio::spawn(async move {
+        client_tunnel_close_1.closed().await;
+    });
+
+    let close_handle_2 = tokio::spawn(async move {
+        client_tunnel_close_2.closed().await;
+    });
+
+    server.close().await.unwrap();
+
+    close_handle_1.await.unwrap();
+    close_handle_2.await.unwrap();
 }
 
 #[tokio::test]
@@ -95,25 +152,28 @@ async fn test_send_data_over_stream() {
 
     let value: u64 = 6329282199514132237;
 
+    let client_tunnel_receive = client.tunnel().clone();
+
     let client_handle = tokio::spawn(async move {
-        let client_tunnel = client.tunnel();
         let mut buffer = [0u8; 16];
-        let (mut client_read_stream, _) = client_tunnel.accept_stream().await.unwrap();
+        let (mut client_read_stream, _) = client_tunnel_receive.accept_stream().await.unwrap();
         let size_opt = client_read_stream.read(&mut buffer[..8]).await.unwrap();
 
         let value_received = u64::from_be_bytes(buffer[..size_opt.unwrap()].try_into().unwrap());
 
-        assert_eq!(8, client_tunnel.state().bytes_received());
+        assert_eq!(8, client_tunnel_receive.bytes_received());
 
         value_received
     });
 
     let (_, mut server_send_stream) = server_tunnel.create_stream().await.unwrap();
 
-    server_send_stream.write(&mut value.to_be_bytes()).await.unwrap();
+    server_send_stream
+        .write(&mut value.to_be_bytes())
+        .await
+        .unwrap();
 
-    assert_eq!(8, server_tunnel.state().bytes_sent());
-
+    assert_eq!(8, server_tunnel.bytes_sent());
     assert_eq!(value, client_handle.await.unwrap());
 
     server.close().await.unwrap();
@@ -163,12 +223,11 @@ async fn test_multiple_handshake_v1_successful() {
         sleep(Duration::from_millis(10)).await;
 
         let server_tunnel = mock_ingress.tunnels.lock().unwrap().pop().unwrap();
-        let server_tunnel_state = server_tunnel.state();
 
-        assert_eq!(TunnelId::new(i), server_tunnel_state.id());
-        assert_eq!(ingress_id, server_tunnel_state.ingress_id().clone());
-        assert_eq!(tunnel_name, server_tunnel_state.name().clone());
-        assert_eq!(true, server_tunnel_state.is_closed());
+        assert_eq!(TunnelId::new(i), server_tunnel.id());
+        assert_eq!(ingress_id, server_tunnel.ingress_id().clone());
+        assert_eq!(tunnel_name, server_tunnel.name().clone());
+        assert_eq!(true, server_tunnel.is_closed());
     }
 
     server.close().await.unwrap();
