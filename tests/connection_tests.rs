@@ -32,8 +32,10 @@ impl Ingress for MockIngress {
         &self.id
     }
 
-    fn assign_tunnel(&self, tunnel: Tunnel) {
+    fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
         self.tunnels.lock().unwrap().push(tunnel);
+
+        Ok(())
     }
 
     async fn start(&self, _server: &Server) -> Result<(), Error> {

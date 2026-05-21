@@ -71,21 +71,21 @@ impl Tunnel {
         self.inner.connection.close(code.code, code.reason);
     }
 
-    pub async fn create_stream(&self) -> Result<(ReadStream, SendStream), Error> {
+    pub async fn create_stream(&self) -> Result<(ReadStream, WriteStream), Error> {
         let (send, recv) = self.inner.connection.open_bi().await?;
 
         Ok((
             ReadStream::new(recv, self.clone()),
-            SendStream::new(send, self.clone()),
+            WriteStream::new(send, self.clone()),
         ))
     }
 
-    pub async fn accept_stream(&self) -> Result<(ReadStream, SendStream), Error> {
+    pub async fn accept_stream(&self) -> Result<(ReadStream, WriteStream), Error> {
         let (send, recv) = self.inner.connection.accept_bi().await?;
 
         Ok((
             ReadStream::new(recv, self.clone()),
-            SendStream::new(send, self.clone()),
+            WriteStream::new(send, self.clone()),
         ))
     }
 }
@@ -114,14 +114,14 @@ impl ReadStream {
     }
 }
 
-pub struct SendStream {
+pub struct WriteStream {
     stream: quinn::SendStream,
     tunnel: Tunnel,
 }
 
-impl SendStream {
-    pub fn new(stream: quinn::SendStream, tunnel: Tunnel) -> SendStream {
-        SendStream { stream, tunnel }
+impl WriteStream {
+    pub fn new(stream: quinn::SendStream, tunnel: Tunnel) -> WriteStream {
+        WriteStream { stream, tunnel }
     }
 
     /// Write a buffer into this stream, returning how many bytes were written

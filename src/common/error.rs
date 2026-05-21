@@ -17,6 +17,15 @@ pub enum Error {
     #[error("Ingress Id rejected.")]
     IngressIdRejected,
 
+    #[error("Ingress has no tunnel connected")]
+    IngressNoTunnelConnected,
+
+    #[error("Ingress is already listening")]
+    IngressAlreadyListening,
+
+    #[error("Ingress is not listening")]
+    IngressNotListening,
+
     #[error("Invalid auth_key reason={reason}")]
     InvalidAuthKey { reason: String },
 
@@ -31,12 +40,6 @@ pub enum Error {
 
     #[error("Invalid data: {0}")]
     InvalidData(Box<dyn std::error::Error + Send + Sync>),
-
-    #[error("Ingress is already listening")]
-    IngressAlreadyListening,
-
-    #[error("Ingress is not listening")]
-    IngressNotListening,
 
     #[error("Server is already listening")]
     ServerAlreadyListening,

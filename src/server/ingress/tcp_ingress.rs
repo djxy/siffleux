@@ -5,10 +5,10 @@ use crate::server::ingress::ingress::Ingress;
 use crate::server::server::Server;
 use async_trait::async_trait;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::select;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
@@ -20,8 +20,9 @@ pub struct TcpIngress {
 struct TcpIngressInner {
     id: IngressId,
     socket_addr: SocketAddr,
+    tunnels: RwLock<Vec<Tunnel>>,
     tcp_listener: Mutex<Option<Arc<TcpListener>>>,
-    stop_token: CancellationToken,
+    tunnel_rotation: AtomicUsize,
 }
 
 #[async_trait]
@@ -30,7 +31,24 @@ impl Ingress for TcpIngress {
         &self.inner.id
     }
 
-    fn assign_tunnel(&self, _tunnel: Tunnel) {}
+    fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
+        let tunnel_clone = tunnel.clone();
+        let self_clone = self.clone();
+
+        tokio::spawn(async move {
+            tunnel_clone.closed().await;
+
+            let mut tunnels = self_clone.inner.tunnels.write().unwrap();
+
+            if let Some(i) = tunnels.iter().position(|t| t.id() == tunnel_clone.id()) {
+                tunnels.swap_remove(i);
+            }
+        });
+
+        self.inner.tunnels.write()?.push(tunnel);
+
+        Ok(())
+    }
 
     async fn start(&self, _server: &Server) -> Result<(), Error> {
         let tcp_listener = {
@@ -59,7 +77,6 @@ impl Ingress for TcpIngress {
     async fn stop(&self, _server: &Server) -> Result<(), Error> {
         if let Some(tcp_listener) = self.inner.tcp_listener.lock().await.take() {
             drop(tcp_listener);
-            self.inner.stop_token.cancel();
 
             Ok(())
         } else {
@@ -74,59 +91,103 @@ impl TcpIngress {
             inner: Arc::new(TcpIngressInner {
                 id,
                 socket_addr,
+                tunnels: RwLock::new(Vec::new()),
                 tcp_listener: Mutex::new(None),
-                stop_token: CancellationToken::new(),
+                tunnel_rotation: AtomicUsize::new(0),
             }),
         }
     }
 
     async fn handle_listener(&self, tcp_listener: Arc<TcpListener>) -> Result<(), Error> {
-        loop {
-            while let Ok((mut tcp_stream, _)) = tcp_listener.accept().await {
-                let self_clone = self.clone();
+        let tcp_listener_cancellation_token = CancellationToken::new();
 
-                tokio::spawn(async move {
-                    self_clone.handle_socket(&mut tcp_stream).await.unwrap();
-                });
-            }
+        while let Ok((tcp_stream, _)) = tcp_listener.accept().await {
+            let self_clone = self.clone();
+            let tcp_listener_cancellation_token_clone = tcp_listener_cancellation_token.clone();
+
+            tokio::spawn(async move {
+                self_clone
+                    .handle_stream(tcp_stream, tcp_listener_cancellation_token_clone)
+                    .await
+                    .unwrap();
+            });
         }
+
+        tcp_listener_cancellation_token.cancel();
+
+        Ok(())
     }
 
-    async fn handle_socket(&self, tcp_stream: TcpStream) -> Result<(), Error> {
-        let mut buf = [0u8; 1024];
+    async fn handle_stream(
+        &self,
+        tcp_stream: TcpStream,
+        tcp_listener_cancellation_token: CancellationToken,
+    ) -> Result<(), Error> {
+        let (mut tcp_read_stream, mut tcp_write_stream) = tcp_stream.into_split();
 
-        if let Err(e) = tcp_stream.readable().await {
-            tcp_stream.shutdown().await?;
+        if let Err(e) = tcp_read_stream.readable().await {
+            drop(tcp_read_stream);
+            drop(tcp_write_stream);
             return Err(e.into());
         }
 
-        let (re, tcp_stream_write) = tcp_stream.into_split();
-        
-        let write_handle = tokio::spawn(async move {
-            tcp_stream_write.write(buf.as_ref()).await;
+        if let Err(e) = tcp_write_stream.writable().await {
+            drop(tcp_read_stream);
+            drop(tcp_write_stream);
+            return Err(e.into());
+        }
+
+        let Ok(Some(tunnel)) = self.get_tunnel_to_connect() else {
+            drop(tcp_read_stream);
+            drop(tcp_write_stream);
+            return Err(Error::IngressNoTunnelConnected);
+        };
+
+        let (mut tunnel_read_stream, mut tunnel_send_stream) = tunnel.create_stream().await?;
+        let tcp_listener_cancellation_token_clone = tcp_listener_cancellation_token.clone();
+
+        let tcp_to_tunnel_handle = tokio::spawn(async move {
+            let mut buf = [0u8; 1024];
+
+            // loop {
+            //     select! {
+            //         read_size_result = tcp_stream.read(&mut buf) => {
+            //             match read_size_result {
+            //                 Ok(0) => continue,
+            //                 Ok(size) => {
+            //                     tcp_stream.write_all(&buf[..size]).await?;
+            //                 }
+            //                 Err(_) => {
+            //                     tcp_stream.shutdown().await?;
+            //                     break;
+            //                 },
+            //             }
+            //         }
+            //         _ = self.inner.stop_token.cancelled() => {
+            //             tcp_stream.shutdown().await?;
+            //             break;
+            //         }
+            //     }
+            // }
         });
 
-        // loop {
-        //     select! {
-        //         read_size_result = tcp_stream.read(&mut buf) => {
-        //             match read_size_result {
-        //                 Ok(0) => continue,
-        //                 Ok(size) => {
-        //                     tcp_stream.write_all(&buf[..size]).await?;
-        //                 }
-        //                 Err(_) => {
-        //                     tcp_stream.shutdown().await?;
-        //                     break;
-        //                 },
-        //             }
-        //         }
-        //         _ = self.inner.stop_token.cancelled() => {
-        //             tcp_stream.shutdown().await?;
-        //             break;
-        //         }
-        //     }
-        // }
-
         Ok(())
+    }
+
+    fn get_tunnel_to_connect(&self) -> Result<Option<Tunnel>, Error> {
+        let tunnels = self.inner.tunnels.read()?;
+
+        if tunnels.is_empty() {
+            return Ok(None);
+        }
+
+        if tunnels.len() == 1 {
+            return Ok(Some(tunnels[0].clone()));
+        }
+
+        Ok(Some(
+            tunnels[self.inner.tunnel_rotation.fetch_add(1, Ordering::Relaxed) % tunnels.len()]
+                .clone(),
+        ))
     }
 }

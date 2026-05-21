@@ -7,7 +7,7 @@ use crate::server::server::Server;
 pub trait Ingress: Send + Sync {
     fn id(&self) -> &IngressId;
 
-    fn assign_tunnel(&self, tunnel: Tunnel);
+    fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error>;
 
     async fn start(&self, server: &Server) -> Result<(), Error>;
 
