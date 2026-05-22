@@ -1,9 +1,8 @@
-use crate::common::error::Error;
-use crate::common::message::code::Code;
-use crate::common::types::{IngressId, TunnelId, TunnelName};
 use quinn::Connection;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+
+use crate::{Code, Error, IngressId, TunnelId, TunnelName};
 
 #[derive(Clone)]
 pub struct Tunnel {
@@ -112,6 +111,10 @@ impl ReadStream {
 
         Ok(size_opt)
     }
+
+    pub fn close(&self, code: &Code) {
+        self.tunnel.close(code);
+    }
 }
 
 pub struct WriteStream {
@@ -138,5 +141,9 @@ impl WriteStream {
             .fetch_add(size as u64, Ordering::Relaxed);
 
         Ok(size)
+    }
+
+    pub fn close(&self, code: &Code) {
+        self.tunnel.close(code);
     }
 }

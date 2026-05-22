@@ -1,5 +1,5 @@
-use crate::common::message::code::{AUTH_KEY_REJECTED, CLOSED, INGRESS_ID_REJECTED};
-use crate::common::types::IngressId;
+use crate::IngressId;
+use crate::codes::{AUTH_KEY_REJECTED, CLOSED, INGRESS_ID_REJECTED};
 use quinn::crypto::rustls::NoInitialCipherSuite;
 use quinn::{ConnectError, ConnectionError, ReadError, ReadExactError, ReadToEndError, WriteError};
 use std::string::FromUtf8Error;

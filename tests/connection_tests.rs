@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use kipawa::code::CLOSED;
+use kipawa::codes::CLOSED;
 use kipawa::ingress::Ingress;
 use kipawa::{AuthKey, Client, Error, IngressId, Server, Tunnel, TunnelId, TunnelName};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
@@ -38,11 +38,11 @@ impl Ingress for MockIngress {
         Ok(())
     }
 
-    async fn start(&self, _server: &Server) -> Result<(), Error> {
+    async fn start(&self) -> Result<(), Error> {
         Ok(())
     }
 
-    async fn stop(&self, _server: &Server) -> Result<(), Error> {
+    async fn stop(&self) -> Result<(), Error> {
         Ok(())
     }
 }

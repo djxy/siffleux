@@ -1,7 +1,7 @@
 use bytes::{BufMut, BytesMut};
 use quinn::{RecvStream, SendStream};
-use crate::common::error::Error;
-use crate::common::types::{AuthKey, IngressId, TunnelId, TunnelName};
+
+use crate::{AuthKey, Error, IngressId, TunnelId, TunnelName};
 
 const VERSION: u8 = 1;
 

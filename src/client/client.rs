@@ -1,7 +1,5 @@
-use crate::common::error::Error;
-use crate::common::message::handshake::{HandshakeV1Request, HandshakeV1Response};
-use crate::common::tunnel::Tunnel;
-use crate::common::types::{AuthKey, IngressId, TunnelId, TunnelName};
+use crate::messages::{HandshakeV1Request, HandshakeV1Response};
+use crate::{AuthKey, Error, IngressId, Tunnel, TunnelId, TunnelName};
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Connection, Endpoint};
 use rustls::RootCertStore;

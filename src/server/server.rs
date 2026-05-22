@@ -1,9 +1,7 @@
-use crate::common::error::Error;
-use crate::common::message::code::{AUTH_KEY_REJECTED, INGRESS_ID_REJECTED};
-use crate::common::message::handshake::{HandshakeV1Request, HandshakeV1Response};
-use crate::common::tunnel::Tunnel;
-use crate::common::types::{AuthKey, IngressId, TunnelId};
-use crate::server::ingress::ingress::Ingress;
+use crate::codes::{AUTH_KEY_REJECTED, INGRESS_ID_REJECTED};
+use crate::ingress::Ingress;
+use crate::messages::{HandshakeV1Request, HandshakeV1Response};
+use crate::{AuthKey, Error, IngressId, Tunnel, TunnelId};
 use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
@@ -173,8 +171,8 @@ impl Server {
                         handshake.ingress_id.clone(),
                         connection,
                     );
-                    
-                    ingress.assign_tunnel(tunnel);
+
+                    let _ = ingress.assign_tunnel(tunnel);
                 }
                 Err(e) => {
                     connection.close(VarInt::from_u32(1), b"TUNNEL_ID_ERROR");

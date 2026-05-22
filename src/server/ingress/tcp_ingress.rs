@@ -1,16 +1,18 @@
-use crate::common::error::Error;
-use crate::common::tunnel::Tunnel;
-use crate::common::types::IngressId;
-use crate::server::ingress::ingress::Ingress;
-use crate::server::server::Server;
 use async_trait::async_trait;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
+use tokio::select;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
+
+use crate::codes::CLOSED;
+use crate::common::tunnel::{ReadStream, WriteStream};
+use crate::ingress::Ingress;
+use crate::{Error, IngressId, Tunnel};
 
 #[derive(Clone)]
 pub struct TcpIngress {
@@ -50,7 +52,7 @@ impl Ingress for TcpIngress {
         Ok(())
     }
 
-    async fn start(&self, _server: &Server) -> Result<(), Error> {
+    async fn start(&self) -> Result<(), Error> {
         let tcp_listener = {
             let mut tcp_listener = self.inner.tcp_listener.lock().await;
 
@@ -74,7 +76,7 @@ impl Ingress for TcpIngress {
         Ok(())
     }
 
-    async fn stop(&self, _server: &Server) -> Result<(), Error> {
+    async fn stop(&self) -> Result<(), Error> {
         if let Some(tcp_listener) = self.inner.tcp_listener.lock().await.take() {
             drop(tcp_listener);
 
@@ -123,7 +125,8 @@ impl TcpIngress {
         tcp_stream: TcpStream,
         tcp_listener_cancellation_token: CancellationToken,
     ) -> Result<(), Error> {
-        let (mut tcp_read_stream, mut tcp_write_stream) = tcp_stream.into_split();
+        let (tcp_read_stream, tcp_write_stream): (OwnedReadHalf, OwnedWriteHalf) =
+            tcp_stream.into_split();
 
         if let Err(e) = tcp_read_stream.readable().await {
             drop(tcp_read_stream);
@@ -143,35 +146,112 @@ impl TcpIngress {
             return Err(Error::IngressNoTunnelConnected);
         };
 
-        let (mut tunnel_read_stream, mut tunnel_send_stream) = tunnel.create_stream().await?;
-        let tcp_listener_cancellation_token_clone = tcp_listener_cancellation_token.clone();
+        let (tunnel_read_stream, tunnel_write_stream) = tunnel.create_stream().await?;
+        let tcp_stream_cancellation_token = CancellationToken::new();
 
-        let tcp_to_tunnel_handle = tokio::spawn(async move {
-            let mut buf = [0u8; 1024];
+        self.handle_tcp_to_tunnel(
+            tcp_listener_cancellation_token.clone(),
+            tcp_stream_cancellation_token.clone(),
+            tcp_read_stream,
+            tunnel_write_stream,
+        );
 
-            // loop {
-            //     select! {
-            //         read_size_result = tcp_stream.read(&mut buf) => {
-            //             match read_size_result {
-            //                 Ok(0) => continue,
-            //                 Ok(size) => {
-            //                     tcp_stream.write_all(&buf[..size]).await?;
-            //                 }
-            //                 Err(_) => {
-            //                     tcp_stream.shutdown().await?;
-            //                     break;
-            //                 },
-            //             }
-            //         }
-            //         _ = self.inner.stop_token.cancelled() => {
-            //             tcp_stream.shutdown().await?;
-            //             break;
-            //         }
-            //     }
-            // }
-        });
+        self.handle_tunnel_to_tcp(
+            tcp_listener_cancellation_token,
+            tcp_stream_cancellation_token,
+            tunnel_read_stream,
+            tcp_write_stream,
+        );
 
         Ok(())
+    }
+
+    fn handle_tcp_to_tunnel(
+        &self,
+        tcp_listener_cancellation_token: CancellationToken,
+        tcp_stream_cancellation_token: CancellationToken,
+        mut tcp_read_stream: OwnedReadHalf,
+        mut tunnel_write_stream: WriteStream,
+    ) {
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1024];
+
+            loop {
+                select! {
+                    read_size_result = tcp_read_stream.read(&mut buf) => {
+                        match read_size_result {
+                            Ok(0) => continue,
+                            Ok(size) => {
+                                tunnel_write_stream.write(&mut buf[..size]).await.unwrap();
+                            }
+                            Err(_) => {
+                                drop(tcp_read_stream);
+                                tunnel_write_stream.close(&CLOSED);
+                                tcp_stream_cancellation_token.cancel();
+                                break;
+                            },
+                        }
+                    }
+                    _ = tcp_stream_cancellation_token.cancelled() => {
+                        drop(tcp_read_stream);
+                        tunnel_write_stream.close(&CLOSED);
+                        break;
+                    }
+                    _ = tcp_listener_cancellation_token.cancelled() => {
+                        drop(tcp_read_stream);
+                        tunnel_write_stream.close(&CLOSED);
+                        break;
+                    }
+                }
+            }
+        });
+    }
+
+    fn handle_tunnel_to_tcp(
+        &self,
+        tcp_listener_cancellation_token: CancellationToken,
+        tcp_stream_cancellation_token: CancellationToken,
+        mut tunnel_read_stream: ReadStream,
+        mut tcp_write_stream: OwnedWriteHalf,
+    ) {
+        tokio::spawn(async move {
+            let mut buf = [0u8; 1024];
+
+            loop {
+                select! {
+                    read_size_result = tunnel_read_stream.read(&mut buf) => {
+                        match read_size_result {
+                            Ok(Some(0)) => continue,
+                            Ok(Some(size)) => {
+                                tcp_write_stream.write(&mut buf[..size]).await.unwrap();
+                            }
+                            Ok(None) => {
+                                drop(tcp_write_stream);
+                                tunnel_read_stream.close(&CLOSED);
+                                tcp_stream_cancellation_token.cancel();
+                                break;
+                            },
+                            Err(_) => {
+                                drop(tcp_write_stream);
+                                tunnel_read_stream.close(&CLOSED);
+                                tcp_stream_cancellation_token.cancel();
+                                break;
+                            },
+                        }
+                    }
+                    _ = tcp_stream_cancellation_token.cancelled() => {
+                        drop(tcp_write_stream);
+                        tunnel_read_stream.close(&CLOSED);
+                        break;
+                    }
+                    _ = tcp_listener_cancellation_token.cancelled() => {
+                        drop(tcp_write_stream);
+                        tunnel_read_stream.close(&CLOSED);
+                        break;
+                    }
+                }
+            }
+        });
     }
 
     fn get_tunnel_to_connect(&self) -> Result<Option<Tunnel>, Error> {

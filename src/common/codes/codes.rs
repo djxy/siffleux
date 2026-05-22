@@ -1,9 +1,6 @@
 use quinn::VarInt;
 
-pub struct Code {
-    pub code: VarInt,
-    pub reason: &'static [u8],
-}
+use crate::Code;
 
 pub const CLOSED: Code = Code {
     code: VarInt::from_u32(0),
