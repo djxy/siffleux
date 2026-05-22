@@ -1,15 +1,21 @@
 use crate::IngressId;
 use crate::codes::{AUTH_KEY_REJECTED, CLOSED, INGRESS_ID_REJECTED};
 use quinn::crypto::rustls::NoInitialCipherSuite;
-use quinn::{ConnectError, ConnectionError, ReadError, ReadExactError, ReadToEndError, WriteError};
+use quinn::{
+    ClosedStream, ConnectError, ConnectionError, ReadError, ReadExactError, ReadToEndError,
+    WriteError,
+};
 use std::string::FromUtf8Error;
 use std::sync::PoisonError;
 use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("Closed successfully")]
-    ClosedSuccessfully,
+    #[error("Closed tunnel")]
+    ClosedTunnel,
+
+    #[error("Closed stream")]
+    ClosedStream,
 
     #[error("Auth key rejected.")]
     AuthKeyRejected,
@@ -107,6 +113,14 @@ impl From<ConnectError> for Error {
     }
 }
 
+impl From<ClosedStream> for Error {
+    fn from(closed_stream: ClosedStream) -> Self {
+        match closed_stream {
+            _ => Error::ClosedStream,
+        }
+    }
+}
+
 impl From<NoInitialCipherSuite> for Error {
     fn from(no_initial_cipher_suite: NoInitialCipherSuite) -> Self {
         match no_initial_cipher_suite {
@@ -119,7 +133,7 @@ impl From<ConnectionError> for Error {
     fn from(connection_error: ConnectionError) -> Self {
         match connection_error {
             ConnectionError::ApplicationClosed(ac) => match ac.error_code {
-                c if c == CLOSED.code => Error::ClosedSuccessfully,
+                c if c == CLOSED.code => Error::ClosedTunnel,
                 c if c == AUTH_KEY_REJECTED.code => Error::AuthKeyRejected,
                 c if c == INGRESS_ID_REJECTED.code => Error::IngressIdRejected,
                 _ => Error::Unknown(ConnectionError::ApplicationClosed(ac).into()),

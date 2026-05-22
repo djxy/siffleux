@@ -9,8 +9,7 @@ use tokio::select;
 use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
-use crate::codes::CLOSED;
-use crate::common::tunnel::{ReadStream, WriteStream};
+use crate::common::tunnel::{ReadChannel, WriteChannel};
 use crate::ingress::Ingress;
 use crate::{Error, IngressId, Tunnel};
 
@@ -146,20 +145,20 @@ impl TcpIngress {
             return Err(Error::IngressNoTunnelConnected);
         };
 
-        let (tunnel_read_stream, tunnel_write_stream) = tunnel.create_stream().await?;
+        let (read_channel, write_channel) = tunnel.create_stream().await?;
         let tcp_stream_cancellation_token = CancellationToken::new();
 
         self.handle_tcp_to_tunnel(
             tcp_listener_cancellation_token.clone(),
             tcp_stream_cancellation_token.clone(),
             tcp_read_stream,
-            tunnel_write_stream,
+            write_channel,
         );
 
         self.handle_tunnel_to_tcp(
             tcp_listener_cancellation_token,
             tcp_stream_cancellation_token,
-            tunnel_read_stream,
+            read_channel,
             tcp_write_stream,
         );
 
@@ -171,10 +170,11 @@ impl TcpIngress {
         tcp_listener_cancellation_token: CancellationToken,
         tcp_stream_cancellation_token: CancellationToken,
         mut tcp_read_stream: OwnedReadHalf,
-        mut tunnel_write_stream: WriteStream,
+        mut write_channel: WriteChannel,
     ) {
         tokio::spawn(async move {
             let mut buf = [0u8; 1024];
+            let stream = write_channel.stream().clone();
 
             loop {
                 select! {
@@ -182,24 +182,37 @@ impl TcpIngress {
                         match read_size_result {
                             Ok(0) => continue,
                             Ok(size) => {
-                                tunnel_write_stream.write(&mut buf[..size]).await.unwrap();
+                                match write_channel.write(&mut buf[..size]).await {
+                                    Ok(_) => continue,
+                                    Err(_) => {
+                                        drop(tcp_read_stream);
+                                        let _ = write_channel.close();
+                                        tcp_stream_cancellation_token.cancel();
+                                        break;
+                                    }
+                                }
                             }
                             Err(_) => {
                                 drop(tcp_read_stream);
-                                tunnel_write_stream.close(&CLOSED);
+                                let _ = write_channel.close();
                                 tcp_stream_cancellation_token.cancel();
                                 break;
                             },
                         }
                     }
+                    _ = stream.closed() => {
+                        drop(tcp_read_stream);
+                        let _ = write_channel.close();
+                        break;
+                    }
                     _ = tcp_stream_cancellation_token.cancelled() => {
                         drop(tcp_read_stream);
-                        tunnel_write_stream.close(&CLOSED);
+                        let _ = write_channel.close();
                         break;
                     }
                     _ = tcp_listener_cancellation_token.cancelled() => {
                         drop(tcp_read_stream);
-                        tunnel_write_stream.close(&CLOSED);
+                        let _ = write_channel.close();
                         break;
                     }
                 }
@@ -211,15 +224,16 @@ impl TcpIngress {
         &self,
         tcp_listener_cancellation_token: CancellationToken,
         tcp_stream_cancellation_token: CancellationToken,
-        mut tunnel_read_stream: ReadStream,
+        mut read_channel: ReadChannel,
         mut tcp_write_stream: OwnedWriteHalf,
     ) {
         tokio::spawn(async move {
             let mut buf = [0u8; 1024];
+            let stream = read_channel.stream().clone();
 
             loop {
                 select! {
-                    read_size_result = tunnel_read_stream.read(&mut buf) => {
+                    read_size_result = read_channel.read(&mut buf) => {
                         match read_size_result {
                             Ok(Some(0)) => continue,
                             Ok(Some(size)) => {
@@ -227,26 +241,31 @@ impl TcpIngress {
                             }
                             Ok(None) => {
                                 drop(tcp_write_stream);
-                                tunnel_read_stream.close(&CLOSED);
+                                let _ = read_channel.close();
                                 tcp_stream_cancellation_token.cancel();
                                 break;
                             },
                             Err(_) => {
                                 drop(tcp_write_stream);
-                                tunnel_read_stream.close(&CLOSED);
+                                let _ = read_channel.close();
                                 tcp_stream_cancellation_token.cancel();
                                 break;
                             },
                         }
                     }
+                    _ = stream.closed() => {
+                        drop(tcp_write_stream);
+                        let _ = read_channel.close();
+                        break;
+                    }
                     _ = tcp_stream_cancellation_token.cancelled() => {
                         drop(tcp_write_stream);
-                        tunnel_read_stream.close(&CLOSED);
+                        let _ = read_channel.close();
                         break;
                     }
                     _ = tcp_listener_cancellation_token.cancelled() => {
                         drop(tcp_write_stream);
-                        tunnel_read_stream.close(&CLOSED);
+                        let _ = read_channel.close();
                         break;
                     }
                 }
