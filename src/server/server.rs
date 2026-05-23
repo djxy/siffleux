@@ -18,7 +18,7 @@ pub struct Server {
 struct ServerInner {
     auth_key: AuthKey,
     endpoint: Mutex<Option<Endpoint>>,
-    ingress_by_id: RwLock<HashMap<IngressId, Arc<dyn Ingress>>>,
+    ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
     tunnel_id_counter: AtomicU64,
     server_config: ServerConfig,
 }
@@ -52,7 +52,7 @@ impl Server {
         }
     }
 
-    pub fn assign_ingress(&self, ingress: Arc<dyn Ingress>) -> Result<(), Error> {
+    pub fn assign_ingress(&self, ingress: Box<dyn Ingress>) -> Result<(), Error> {
         let mut ingress_by_id = self.inner.ingress_by_id.write()?;
 
         if ingress_by_id.contains_key(&ingress.id()) {

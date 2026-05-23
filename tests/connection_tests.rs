@@ -1,6 +1,6 @@
 use async_trait::async_trait;
 use kipawa::codes::CLOSED;
-use kipawa::ingress::Ingress;
+use kipawa::ingress::{Ingress, IngressClone};
 use kipawa::{AuthKey, Client, Error, IngressId, Server, Tunnel, TunnelId, TunnelName};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -12,7 +12,12 @@ static CRYPTO: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>)> 
 
 static SERVER_NAME: &'static str = "localhost";
 
+#[derive(Clone)]
 struct MockIngress {
+    inner: Arc<MockIngressInner>,
+}
+
+struct MockIngressInner {
     id: IngressId,
     tunnels: Mutex<Vec<Tunnel>>,
 }
@@ -20,8 +25,10 @@ struct MockIngress {
 impl MockIngress {
     fn new(id: IngressId) -> Self {
         Self {
-            id,
-            tunnels: Mutex::new(vec![]),
+            inner: Arc::new(MockIngressInner {
+                id,
+                tunnels: Mutex::new(vec![]),
+            }),
         }
     }
 }
@@ -29,11 +36,11 @@ impl MockIngress {
 #[async_trait]
 impl Ingress for MockIngress {
     fn id(&self) -> &IngressId {
-        &self.id
+        &self.inner.id
     }
 
     fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
-        self.tunnels.lock().unwrap().push(tunnel);
+        self.inner.tunnels.lock().unwrap().push(tunnel);
 
         Ok(())
     }
@@ -79,9 +86,9 @@ async fn test_detect_tunnel_closed() {
         .await
         .unwrap();
 
-    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
+    let mock_ingress = MockIngress::new(ingress_id.clone());
 
-    server.assign_ingress(mock_ingress.clone()).unwrap();
+    server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
     let client = Client::connect_with_certificates(
         auth_key.clone(),
@@ -132,9 +139,9 @@ async fn test_send_data_over_stream() {
         .await
         .unwrap();
 
-    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
+    let mock_ingress = MockIngress::new(ingress_id.clone());
 
-    server.assign_ingress(mock_ingress.clone()).unwrap();
+    server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
     let client = Client::connect_with_certificates(
         auth_key.clone(),
@@ -150,7 +157,7 @@ async fn test_send_data_over_stream() {
     .await
     .unwrap();
 
-    let server_tunnel = mock_ingress.tunnels.lock().unwrap().pop().unwrap();
+    let server_tunnel = mock_ingress.inner.tunnels.lock().unwrap().pop().unwrap();
 
     let value: u64 = 6329282199514132237;
 
@@ -201,7 +208,7 @@ async fn test_multiple_handshake_v1_successful() {
 
     let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
 
-    server.assign_ingress(mock_ingress.clone()).unwrap();
+    server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
     for i in 0..3 {
         let tunnel_name = TunnelName::try_from(format!("name-{i}")).unwrap();
@@ -224,7 +231,7 @@ async fn test_multiple_handshake_v1_successful() {
 
         sleep(Duration::from_millis(10)).await;
 
-        let server_tunnel = mock_ingress.tunnels.lock().unwrap().pop().unwrap();
+        let server_tunnel = mock_ingress.inner.tunnels.lock().unwrap().pop().unwrap();
 
         assert_eq!(TunnelId::new(i), server_tunnel.id());
         assert_eq!(ingress_id, server_tunnel.ingress_id().clone());

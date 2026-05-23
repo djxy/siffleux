@@ -1,12 +1,11 @@
 use async_trait::async_trait;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::select;
-use tokio::sync::Mutex;
 use tokio_util::sync::CancellationToken;
 
 use crate::common::tunnel::{ReadChannel, WriteChannel};
@@ -22,7 +21,8 @@ struct TcpIngressInner {
     id: IngressId,
     socket_addr: SocketAddr,
     tunnels: RwLock<Vec<Tunnel>>,
-    tcp_listener: Mutex<Option<Arc<TcpListener>>>,
+    tcp_listener: tokio::sync::Mutex<Option<Arc<TcpListener>>>,
+    tcp_listener_socket_addr: Mutex<Option<SocketAddr>>,
     tunnel_rotation: AtomicUsize,
 }
 
@@ -61,6 +61,12 @@ impl Ingress for TcpIngress {
 
             let tcp_listener_arc = Arc::new(TcpListener::bind(self.inner.socket_addr).await?);
 
+            {
+                let mut tcp_listener_socket_addr = self.inner.tcp_listener_socket_addr.lock()?;
+
+                *tcp_listener_socket_addr = Some(tcp_listener_arc.local_addr()?.clone());
+            }
+
             *tcp_listener = Some(tcp_listener_arc.clone());
 
             tcp_listener_arc
@@ -93,10 +99,15 @@ impl TcpIngress {
                 id,
                 socket_addr,
                 tunnels: RwLock::new(Vec::new()),
-                tcp_listener: Mutex::new(None),
+                tcp_listener: tokio::sync::Mutex::new(None),
+                tcp_listener_socket_addr: Mutex::new(None),
                 tunnel_rotation: AtomicUsize::new(0),
             }),
         }
+    }
+
+    pub fn socket_addr(&self) -> Result<Option<SocketAddr>, Error> {
+        Ok(*self.inner.tcp_listener_socket_addr.lock()?)
     }
 
     async fn handle_listener(&self, tcp_listener: Arc<TcpListener>) -> Result<(), Error> {
