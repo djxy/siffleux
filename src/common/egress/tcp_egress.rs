@@ -6,6 +6,7 @@ use tokio::{
         TcpStream,
         tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
+    select,
 };
 use tracing::error;
 
@@ -117,6 +118,25 @@ impl TcpEgress {
         mut tcp_read: OwnedReadHalf,
     ) -> Result<(), Error> {
         let mut buffer = [0u8; 1024];
+        let stream = write_channel.stream().clone();
+
+        loop {
+            select! {
+                read_size_result = tcp_read.read(&mut buffer) {
+                    match read_size_result {
+                        Ok(0) => break,
+                        Ok(size) => {
+                            match write_channel.write(&mut buf[..size]).await {
+                                Ok(_) => continue,
+                                Err(_) => break,
+                            }
+                        },
+                        Err(_) => break,
+                    }
+                }
+                _ = stream.closed()
+            }
+        }
 
         while let Ok(size) = tcp_read.read(&mut buffer).await {
             if let Err(_) = write_channel.write(&mut buffer[..size]).await {

@@ -7,6 +7,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::select;
 use tokio_util::sync::CancellationToken;
+use tracing::error;
 
 use crate::common::tunnel::{ReadChannel, WriteChannel};
 use crate::ingress::Ingress;
@@ -118,10 +119,12 @@ impl TcpIngress {
             let tcp_listener_cancellation_token_clone = tcp_listener_cancellation_token.clone();
 
             tokio::spawn(async move {
-                self_clone
+                if let Err(e) = self_clone
                     .handle_stream(tcp_stream, tcp_listener_cancellation_token_clone)
                     .await
-                    .unwrap();
+                {
+                    error!("Error while handling tcp connection in ingress. {:?}", e);
+                }
             });
         }
 
@@ -139,20 +142,14 @@ impl TcpIngress {
             tcp_stream.into_split();
 
         if let Err(e) = tcp_read_stream.readable().await {
-            drop(tcp_read_stream);
-            drop(tcp_write_stream);
             return Err(e.into());
         }
 
         if let Err(e) = tcp_write_stream.writable().await {
-            drop(tcp_read_stream);
-            drop(tcp_write_stream);
             return Err(e.into());
         }
 
         let Ok(Some(tunnel)) = self.get_tunnel_to_connect() else {
-            drop(tcp_read_stream);
-            drop(tcp_write_stream);
             return Err(Error::IngressNoTunnelConnected);
         };
 
@@ -191,43 +188,24 @@ impl TcpIngress {
                 select! {
                     read_size_result = tcp_read_stream.read(&mut buf) => {
                         match read_size_result {
-                            Ok(0) => continue,
+                            Ok(0) => break,
                             Ok(size) => {
                                 match write_channel.write(&mut buf[..size]).await {
                                     Ok(_) => continue,
-                                    Err(_) => {
-                                        drop(tcp_read_stream);
-                                        let _ = write_channel.close();
-                                        tcp_stream_cancellation_token.cancel();
-                                        break;
-                                    }
+                                    Err(_) => break,
                                 }
                             }
-                            Err(_) => {
-                                drop(tcp_read_stream);
-                                let _ = write_channel.close();
-                                tcp_stream_cancellation_token.cancel();
-                                break;
-                            },
+                            Err(_) => break,
                         }
                     }
-                    _ = stream.closed() => {
-                        drop(tcp_read_stream);
-                        let _ = write_channel.close();
-                        break;
-                    }
-                    _ = tcp_stream_cancellation_token.cancelled() => {
-                        drop(tcp_read_stream);
-                        let _ = write_channel.close();
-                        break;
-                    }
-                    _ = tcp_listener_cancellation_token.cancelled() => {
-                        drop(tcp_read_stream);
-                        let _ = write_channel.close();
-                        break;
-                    }
+                    _ = stream.closed() => break,
+                    _ = tcp_stream_cancellation_token.cancelled() => break,
+                    _ = tcp_listener_cancellation_token.cancelled() => break,
                 }
             }
+
+            let _ = write_channel.close();
+            tcp_stream_cancellation_token.cancel();
         });
     }
 
@@ -250,37 +228,18 @@ impl TcpIngress {
                             Ok(Some(size)) => {
                                 tcp_write_stream.write(&mut buf[..size]).await.unwrap();
                             }
-                            Ok(None) => {
-                                drop(tcp_write_stream);
-                                let _ = read_channel.close();
-                                tcp_stream_cancellation_token.cancel();
-                                break;
-                            },
-                            Err(_) => {
-                                drop(tcp_write_stream);
-                                let _ = read_channel.close();
-                                tcp_stream_cancellation_token.cancel();
-                                break;
-                            },
+                            Ok(None) => break,
+                            Err(_) => break,
                         }
                     }
-                    _ = stream.closed() => {
-                        drop(tcp_write_stream);
-                        let _ = read_channel.close();
-                        break;
-                    }
-                    _ = tcp_stream_cancellation_token.cancelled() => {
-                        drop(tcp_write_stream);
-                        let _ = read_channel.close();
-                        break;
-                    }
-                    _ = tcp_listener_cancellation_token.cancelled() => {
-                        drop(tcp_write_stream);
-                        let _ = read_channel.close();
-                        break;
-                    }
+                    _ = stream.closed() => break,
+                    _ = tcp_stream_cancellation_token.cancelled() => break,
+                    _ = tcp_listener_cancellation_token.cancelled() => break,
                 }
             }
+
+            let _ = read_channel.close();
+            tcp_stream_cancellation_token.cancel();
         });
     }
 

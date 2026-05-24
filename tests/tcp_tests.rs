@@ -116,3 +116,49 @@ async fn test_send_and_receive_data() {
 
     server.close().await.unwrap();
 }
+
+#[tokio::test]
+async fn test_tcp_write_dropped() {
+    let (cert_der, key) = init_crypto();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+
+    let server = Server::new_with_self_signed_certificate(
+        auth_key.clone(),
+        cert_der.clone(),
+        key.clone_key(),
+    )
+    .unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .await
+        .unwrap();
+
+    let tcp_ingress = TcpIngress::new(
+        ingress_id.clone(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    );
+
+    tcp_ingress.start().await.unwrap();
+
+    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr().unwrap() else {
+        panic!("Shouldn't reach!!");
+    };
+
+    server.assign_ingress(tcp_ingress.clone_box()).unwrap();
+
+    let (mut tcp_read_stream, tcp_write_stream) = TcpStream::connect(tcp_ingress_socket_addr)
+        .await
+        .unwrap()
+        .into_split();
+
+    drop(tcp_write_stream);
+
+    let result = tcp_read_stream.read(&mut [0u8; 0]).await;
+
+    assert_eq!(false, result.is_err());
+    assert_eq!(Some(0), result.ok());
+
+    server.close().await.unwrap();
+}
