@@ -3,6 +3,7 @@ mod server;
 
 pub use common::code::*;
 pub use common::codes::*;
+pub use common::egress::*;
 pub use common::error::Error;
 pub use common::messages;
 pub use common::tunnel::ReadChannel;

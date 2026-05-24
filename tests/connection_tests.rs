@@ -82,7 +82,7 @@ async fn test_detect_tunnel_closed() {
     .unwrap();
 
     server
-        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
@@ -94,10 +94,7 @@ async fn test_detect_tunnel_closed() {
         auth_key.clone(),
         ingress_id.clone(),
         TunnelName::try_from("").unwrap(),
-        SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            server.address().unwrap().port(),
-        ),
+        server.address().unwrap(),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
     )
@@ -135,7 +132,7 @@ async fn test_send_data_over_stream() {
     .unwrap();
 
     server
-        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
@@ -147,10 +144,7 @@ async fn test_send_data_over_stream() {
         auth_key.clone(),
         ingress_id.clone(),
         TunnelName::try_from("").unwrap(),
-        SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            server.address().unwrap().port(),
-        ),
+        server.address().unwrap(),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
     )
@@ -202,7 +196,7 @@ async fn test_multiple_handshake_v1_successful() {
     .unwrap();
 
     server
-        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
@@ -254,7 +248,7 @@ async fn test_handshake_v1_rejected_ingress_id() {
     .unwrap();
 
     server
-        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
@@ -262,10 +256,7 @@ async fn test_handshake_v1_rejected_ingress_id() {
         AuthKey::try_from("valid_auth_key").unwrap(),
         IngressId::try_from("").unwrap(),
         TunnelName::try_from("").unwrap(),
-        SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            server.address().unwrap().port(),
-        ),
+        server.address().unwrap(),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
     )
@@ -291,7 +282,7 @@ async fn test_handshake_v1_rejected_auth_key() {
     .unwrap();
 
     server
-        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
@@ -299,10 +290,7 @@ async fn test_handshake_v1_rejected_auth_key() {
         AuthKey::try_from("wrong_auth_key").unwrap(),
         IngressId::try_from("").unwrap(),
         TunnelName::try_from("").unwrap(),
-        SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            server.address().unwrap().port(),
-        ),
+        server.address().unwrap(),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
     )

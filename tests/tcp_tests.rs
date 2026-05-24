@@ -6,12 +6,14 @@ use std::{
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use siffleux::{
     AuthKey, IngressId, Server, Tunnel, TunnelName,
+    egress::Egress,
     ingress::{Ingress, IngressClone},
+    tcp_egress::TcpEgress,
     tcp_ingress::TcpIngress,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
-    net::TcpStream,
+    net::{TcpListener, TcpStream},
 };
 
 static SERVER_NAME: &'static str = "localhost";
@@ -46,16 +48,20 @@ async fn test_send_and_receive_data() {
     .unwrap();
 
     server
-        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
     tcp_ingress.start().await.unwrap();
+
+    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr().unwrap() else {
+        panic!("Shouldn't reach!!");
+    };
 
     server.assign_ingress(tcp_ingress.clone_box()).unwrap();
 
@@ -63,29 +69,37 @@ async fn test_send_and_receive_data() {
         auth_key.clone(),
         ingress_id.clone(),
         TunnelName::try_from("").unwrap(),
-        SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            server.address().unwrap().port(),
-        ),
+        server.address().unwrap(),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
     )
     .await
     .unwrap();
 
-    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr().unwrap() else {
-        panic!("Shouldn't reach!!");
-    };
-
-    let tunnel_receive = tunnel.clone();
+    let tunnel_clone = tunnel.clone();
 
     tokio::spawn(async move {
-        let mut buffer = [0u8; 32];
-        let (mut read_channel, mut write_channel) = tunnel_receive.accept_stream().await.unwrap();
+        let tcp_echo = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+            .await
+            .unwrap();
+        let tcp_echo_addr = tcp_echo.local_addr().unwrap();
 
-        let size = read_channel.read(&mut buffer).await.unwrap().unwrap();
+        tokio::spawn(async move {
+            while let Ok((tcp_stream, _)) = tcp_echo.accept().await {
+                tokio::spawn(async move {
+                    let mut buffer = [0u8, 32];
+                    let (mut read_stream, mut write_stream) = tcp_stream.into_split();
 
-        write_channel.write(&mut buffer[..size]).await.unwrap();
+                    while let Ok(size) = read_stream.read(&mut buffer).await {
+                        write_stream.write(&mut buffer[..size]).await.unwrap();
+                    }
+                });
+            }
+        });
+
+        let tcp_egress = TcpEgress::new(tunnel_clone, tcp_echo_addr);
+
+        let _ = tcp_egress.start().await;
     });
 
     let mut stream = TcpStream::connect(tcp_ingress_socket_addr).await.unwrap();
