@@ -1,8 +1,6 @@
-mod client;
 mod common;
 mod server;
 
-pub use client::client::Client;
 pub use common::code::*;
 pub use common::codes::*;
 pub use common::error::Error;

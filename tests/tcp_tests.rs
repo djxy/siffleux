@@ -3,12 +3,12 @@ use std::{
     sync::OnceLock,
 };
 
-use kipawa::{
-    AuthKey, Client, IngressId, Server, TunnelName,
+use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+use siffleux::{
+    AuthKey, IngressId, Server, Tunnel, TunnelName,
     ingress::{Ingress, IngressClone},
     tcp_ingress::TcpIngress,
 };
-use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -59,7 +59,7 @@ async fn test_send_and_receive_data() {
 
     server.assign_ingress(tcp_ingress.clone_box()).unwrap();
 
-    let client = Client::connect_with_certificates(
+    let tunnel = Tunnel::connect_to_server_with_certificates(
         auth_key.clone(),
         ingress_id.clone(),
         TunnelName::try_from("").unwrap(),
@@ -77,12 +77,11 @@ async fn test_send_and_receive_data() {
         panic!("Shouldn't reach!!");
     };
 
-    let client_tunnel_receive = client.tunnel().clone();
+    let tunnel_receive = tunnel.clone();
 
     tokio::spawn(async move {
         let mut buffer = [0u8; 32];
-        let (mut read_channel, mut write_channel) =
-            client_tunnel_receive.accept_stream().await.unwrap();
+        let (mut read_channel, mut write_channel) = tunnel_receive.accept_stream().await.unwrap();
 
         let size = read_channel.read(&mut buffer).await.unwrap().unwrap();
 

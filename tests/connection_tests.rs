@@ -1,8 +1,8 @@
 use async_trait::async_trait;
-use kipawa::codes::CLOSED;
-use kipawa::ingress::{Ingress, IngressClone};
-use kipawa::{AuthKey, Client, Error, IngressId, Server, Tunnel, TunnelId, TunnelName};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+use siffleux::codes::CLOSED;
+use siffleux::ingress::{Ingress, IngressClone};
+use siffleux::{AuthKey, Error, IngressId, Server, Tunnel, TunnelId, TunnelName};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
@@ -90,7 +90,7 @@ async fn test_detect_tunnel_closed() {
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
-    let client = Client::connect_with_certificates(
+    let tunnel = Tunnel::connect_to_server_with_certificates(
         auth_key.clone(),
         ingress_id.clone(),
         TunnelName::try_from("").unwrap(),
@@ -104,15 +104,15 @@ async fn test_detect_tunnel_closed() {
     .await
     .unwrap();
 
-    let client_tunnel_close_1 = client.tunnel().clone();
-    let client_tunnel_close_2 = client.tunnel().clone();
+    let tunnel_close_1 = tunnel.clone();
+    let tunnel_close_2 = tunnel.clone();
 
     let close_handle_1 = tokio::spawn(async move {
-        client_tunnel_close_1.closed().await;
+        tunnel_close_1.closed().await;
     });
 
     let close_handle_2 = tokio::spawn(async move {
-        client_tunnel_close_2.closed().await;
+        tunnel_close_2.closed().await;
     });
 
     server.close().await.unwrap();
@@ -143,7 +143,7 @@ async fn test_send_data_over_stream() {
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
-    let client = Client::connect_with_certificates(
+    let tunnel = Tunnel::connect_to_server_with_certificates(
         auth_key.clone(),
         ingress_id.clone(),
         TunnelName::try_from("").unwrap(),
@@ -161,29 +161,29 @@ async fn test_send_data_over_stream() {
 
     let value: u64 = 6329282199514132237;
 
-    let client_tunnel_receive = client.tunnel().clone();
+    let tunnel_receive = tunnel.clone();
 
-    let client_handle = tokio::spawn(async move {
+    let tunnel_handle = tokio::spawn(async move {
         let mut buffer = [0u8; 16];
-        let (mut client_read_stream, _) = client_tunnel_receive.accept_stream().await.unwrap();
-        let size_opt = client_read_stream.read(&mut buffer[..8]).await.unwrap();
+        let (mut tunnel_read_channel, _) = tunnel_receive.accept_stream().await.unwrap();
+        let size_opt = tunnel_read_channel.read(&mut buffer[..8]).await.unwrap();
 
         let value_received = u64::from_be_bytes(buffer[..size_opt.unwrap()].try_into().unwrap());
 
-        assert_eq!(8, client_tunnel_receive.bytes_received());
+        assert_eq!(8, tunnel_receive.bytes_received());
 
         value_received
     });
 
-    let (_, mut server_send_stream) = server_tunnel.create_stream().await.unwrap();
+    let (_, mut server_write_channel) = server_tunnel.create_stream().await.unwrap();
 
-    server_send_stream
+    server_write_channel
         .write(&mut value.to_be_bytes())
         .await
         .unwrap();
 
     assert_eq!(8, server_tunnel.bytes_sent());
-    assert_eq!(value, client_handle.await.unwrap());
+    assert_eq!(value, tunnel_handle.await.unwrap());
 
     server.close().await.unwrap();
 }
@@ -213,7 +213,7 @@ async fn test_multiple_handshake_v1_successful() {
     for i in 0..3 {
         let tunnel_name = TunnelName::try_from(format!("name-{i}")).unwrap();
 
-        let client = Client::connect_with_certificates(
+        let tunnel = Tunnel::connect_to_server_with_certificates(
             auth_key.clone(),
             ingress_id.clone(),
             tunnel_name.clone(),
@@ -227,7 +227,7 @@ async fn test_multiple_handshake_v1_successful() {
         .await
         .unwrap();
 
-        client.tunnel().close(&CLOSED);
+        tunnel.close(&CLOSED);
 
         sleep(Duration::from_millis(10)).await;
 
@@ -258,7 +258,7 @@ async fn test_handshake_v1_rejected_ingress_id() {
         .await
         .unwrap();
 
-    if let Err(e) = Client::connect_with_certificates(
+    if let Err(e) = Tunnel::connect_to_server_with_certificates(
         AuthKey::try_from("valid_auth_key").unwrap(),
         IngressId::try_from("").unwrap(),
         TunnelName::try_from("").unwrap(),
@@ -295,7 +295,7 @@ async fn test_handshake_v1_rejected_auth_key() {
         .await
         .unwrap();
 
-    if let Err(e) = Client::connect_with_certificates(
+    if let Err(e) = Tunnel::connect_to_server_with_certificates(
         AuthKey::try_from("wrong_auth_key").unwrap(),
         IngressId::try_from("").unwrap(),
         TunnelName::try_from("").unwrap(),
