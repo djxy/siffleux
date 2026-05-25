@@ -11,14 +11,20 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("Auth key rejected.")]
+    AuthKeyRejected,
+
     #[error("Closed tunnel")]
     ClosedTunnel,
 
     #[error("Closed stream")]
     ClosedStream,
 
-    #[error("Auth key rejected.")]
-    AuthKeyRejected,
+    #[error("Egress is already listening")]
+    EgressAlreadyListening,
+
+    #[error("Egress is not listening")]
+    EgressNotListening,
 
     #[error("Ingress Id rejected.")]
     IngressIdRejected,

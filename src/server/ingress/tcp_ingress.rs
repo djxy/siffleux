@@ -123,7 +123,7 @@ impl TcpIngress {
                     .handle_stream(tcp_stream, tcp_listener_cancellation_token_clone)
                     .await
                 {
-                    error!("Error while handling tcp connection in ingress. {:?}", e);
+                    error!("Error while handling tcp connection in ingress. {}", e);
                 }
             });
         }
@@ -197,7 +197,7 @@ impl TcpIngress {
                             }
                             Err(_) => break,
                         }
-                    }
+                    },
                     _ = stream.closed() => break,
                     _ = tcp_stream_cancellation_token.cancelled() => break,
                     _ = tcp_listener_cancellation_token.cancelled() => break,

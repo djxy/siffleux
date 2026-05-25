@@ -22,6 +22,8 @@ static CRYPTO: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>)> 
 
 fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>) {
     CRYPTO.get_or_init(|| {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         rustls::crypto::ring::default_provider()
             .install_default()
             .unwrap();
@@ -118,7 +120,78 @@ async fn test_send_and_receive_data() {
 }
 
 #[tokio::test]
-async fn test_tcp_write_dropped() {
+async fn test_target_tcp_write_dropped() {
+    let (cert_der, key) = init_crypto();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+
+    let server = Server::new_with_self_signed_certificate(
+        auth_key.clone(),
+        cert_der.clone(),
+        key.clone_key(),
+    )
+    .unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .await
+        .unwrap();
+
+    let tcp_ingress = TcpIngress::new(
+        ingress_id.clone(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    );
+
+    tcp_ingress.start().await.unwrap();
+
+    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr().unwrap() else {
+        panic!("Shouldn't reach!!");
+    };
+
+    server.assign_ingress(tcp_ingress.clone_box()).unwrap();
+
+    let tunnel = Tunnel::connect_to_server_with_certificates(
+        auth_key.clone(),
+        ingress_id.clone(),
+        TunnelName::try_from("").unwrap(),
+        server.address().unwrap(),
+        SERVER_NAME.to_string(),
+        vec![cert_der.clone()],
+    )
+    .await
+    .unwrap();
+
+    let tunnel_clone = tunnel.clone();
+
+    tokio::spawn(async move {
+        let tcp_echo = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+            .await
+            .unwrap();
+        let tcp_echo_addr = tcp_echo.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            while let Ok((mut tcp_stream, _)) = tcp_echo.accept().await {
+                tcp_stream.shutdown().await.unwrap();
+            }
+        });
+
+        let tcp_egress = TcpEgress::new(tunnel_clone, tcp_echo_addr);
+
+        let _ = tcp_egress.start().await;
+    });
+
+    let mut stream = TcpStream::connect(tcp_ingress_socket_addr).await.unwrap();
+
+    let result = stream.read(&mut [0u8; 0]).await;
+
+    assert_eq!(false, result.is_err());
+    assert_eq!(Some(0), result.ok());
+
+    server.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_origin_tcp_write_dropped() {
     let (cert_der, key) = init_crypto();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
