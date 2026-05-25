@@ -7,7 +7,7 @@ use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::select;
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::common::tunnel::{ReadChannel, WriteChannel};
 use crate::ingress::Ingress;
@@ -60,7 +60,11 @@ impl Ingress for TcpIngress {
                 return Err(Error::IngressAlreadyListening);
             }
 
+            info!("Starting tcp ingress_id={}", self.id());
+
             let tcp_listener_arc = Arc::new(TcpListener::bind(self.inner.socket_addr).await?);
+
+            info!("Started tcp ingress_id={}", self.id());
 
             {
                 let mut tcp_listener_socket_addr = self.inner.tcp_listener_socket_addr.lock()?;
@@ -113,8 +117,11 @@ impl TcpIngress {
 
     async fn handle_listener(&self, tcp_listener: Arc<TcpListener>) -> Result<(), Error> {
         let tcp_listener_cancellation_token = CancellationToken::new();
+        info!("Tcp ingress_id={} waiting connections", self.id());
 
         while let Ok((tcp_stream, _)) = tcp_listener.accept().await {
+            info!("Received tcp connection on ingress_id={}", self.id());
+
             let self_clone = self.clone();
             let tcp_listener_cancellation_token_clone = tcp_listener_cancellation_token.clone();
 
@@ -180,6 +187,8 @@ impl TcpIngress {
         mut tcp_read_stream: OwnedReadHalf,
         mut write_channel: WriteChannel,
     ) {
+        let self_clone = self.clone();
+
         tokio::spawn(async move {
             let mut buf = [0u8; 1024];
             let stream = write_channel.stream().clone();
@@ -206,6 +215,11 @@ impl TcpIngress {
 
             let _ = write_channel.close();
             tcp_stream_cancellation_token.cancel();
+
+            info!(
+                "Tcp ingress_id={} tcp-to-tunnel connection closed",
+                self_clone.id()
+            );
         });
     }
 
@@ -216,6 +230,8 @@ impl TcpIngress {
         mut read_channel: ReadChannel,
         mut tcp_write_stream: OwnedWriteHalf,
     ) {
+        let self_clone = self.clone();
+
         tokio::spawn(async move {
             let mut buf = [0u8; 1024];
             let stream = read_channel.stream().clone();
@@ -240,6 +256,11 @@ impl TcpIngress {
 
             let _ = read_channel.close();
             tcp_stream_cancellation_token.cancel();
+
+            info!(
+                "Tcp ingress_id={} tunnel-to-tcp connection closed",
+                self_clone.id()
+            );
         });
     }
 

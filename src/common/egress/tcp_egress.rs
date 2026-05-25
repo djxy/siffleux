@@ -12,7 +12,7 @@ use tokio::{
     select,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::error;
+use tracing::{error, info};
 
 use crate::{Error, ReadChannel, Tunnel, WriteChannel, egress::Egress};
 
@@ -43,6 +43,8 @@ impl Egress for TcpEgress {
 
             ct
         };
+
+        info!("Started tcp egress targeting={}", self.inner.target_addr);
 
         let self_clone = self.clone();
 
@@ -78,6 +80,13 @@ impl TcpEgress {
 
     async fn listen_streams(&self, cancellation_token: CancellationToken) {
         while let Ok((read_channel, write_channel)) = self.inner.tunnel.accept_stream().await {
+            info!(
+                "Received stream from tunnel_id={} ingress_id={} on tcp_egress={}",
+                self.inner.tunnel.id(),
+                self.inner.tunnel.ingress_id(),
+                self.inner.target_addr
+            );
+
             let self_clone = self.clone();
             let ct = cancellation_token.clone();
 
@@ -157,6 +166,13 @@ impl TcpEgress {
             }
         }
 
+        info!(
+            "Tunnel-to-tcp connection closed for tunnel_id={} ingress_id={} on tcp_egress={}",
+            self.inner.tunnel.id(),
+            self.inner.tunnel.ingress_id(),
+            self.inner.target_addr
+        );
+
         read_channel.close()?;
 
         Ok(())
@@ -189,6 +205,13 @@ impl TcpEgress {
                 _ = cancellation_token.cancelled() => break,
             }
         }
+
+        info!(
+            "Tcp-to-tunnel connection closed for tunnel_id={} ingress_id={} on tcp_egress={}",
+            self.inner.tunnel.id(),
+            self.inner.tunnel.ingress_id(),
+            self.inner.target_addr
+        );
 
         write_channel.close()?;
 

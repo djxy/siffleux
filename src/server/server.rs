@@ -131,7 +131,7 @@ impl Server {
                     }
 
                     info!(
-                        "Received handshake ingress_id={} name={}.",
+                        "Received handshake for ingress_id={} from name={}",
                         handshake.ingress_id, handshake.tunnel_name
                     );
 
@@ -155,8 +155,8 @@ impl Server {
                     );
 
                     info!(
-                        "Assign ID={} ingress_id={} name={}.",
-                        tunnel_id, handshake.ingress_id, handshake.tunnel_name
+                        "Assigned tunnel_id={} to name={} on ingress_id={}",
+                        tunnel_id, handshake.tunnel_name, handshake.ingress_id
                     );
 
                     HandshakeV1Response::write(&mut send, tunnel_id)

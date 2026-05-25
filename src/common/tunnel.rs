@@ -46,7 +46,7 @@ impl Tunnel {
             .with_root_certificates(roots)
             .with_no_client_auth();
 
-        info!("Connecting ingress_id={ingress_id}");
+        info!("Connecting to ingress_id={ingress_id}");
 
         Self::complete_handshake(
             Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?
@@ -71,7 +71,7 @@ impl Tunnel {
     ) -> Result<Tunnel, Error> {
         let (mut send, mut recv) = connection.open_bi().await?;
 
-        info!("Sending handshake ingress_id={ingress_id}");
+        info!("Sending handshake to ingress_id={ingress_id}");
 
         HandshakeV1Request::write(&mut send, &auth_key, &ingress_id, &name).await?;
 
@@ -80,7 +80,7 @@ impl Tunnel {
         recv.read_to_end(0).await?;
 
         info!(
-            "Handshake complete ID={} ingress_id={ingress_id}.",
+            "Handshake complete. Received tunnel_id={} on ingress_id={ingress_id}",
             response.tunnel_id
         );
 

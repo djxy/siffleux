@@ -6,6 +6,7 @@ use std::{
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use siffleux::{
     AuthKey, IngressId, Server, Tunnel, TunnelName,
+    codes::CLOSED,
     egress::Egress,
     ingress::{Ingress, IngressClone},
     tcp_egress::TcpEgress,
@@ -170,8 +171,8 @@ async fn test_target_tcp_write_dropped() {
         let tcp_echo_addr = tcp_echo.local_addr().unwrap();
 
         tokio::spawn(async move {
-            while let Ok((mut tcp_stream, _)) = tcp_echo.accept().await {
-                tcp_stream.shutdown().await.unwrap();
+            while let Ok((tcp_stream, _)) = tcp_echo.accept().await {
+                drop(tcp_stream);
             }
         });
 
@@ -182,6 +183,7 @@ async fn test_target_tcp_write_dropped() {
 
     let mut stream = TcpStream::connect(tcp_ingress_socket_addr).await.unwrap();
 
+    stream.write(&mut [0u8; 10]).await.unwrap();
     let result = stream.read(&mut [0u8; 0]).await;
 
     assert_eq!(false, result.is_err());
@@ -221,6 +223,17 @@ async fn test_origin_tcp_write_dropped() {
 
     server.assign_ingress(tcp_ingress.clone_box()).unwrap();
 
+    let tunnel = Tunnel::connect_to_server_with_certificates(
+        auth_key.clone(),
+        ingress_id.clone(),
+        TunnelName::try_from("").unwrap(),
+        server.address().unwrap(),
+        SERVER_NAME.to_string(),
+        vec![cert_der.clone()],
+    )
+    .await
+    .unwrap();
+
     let (mut tcp_read_stream, tcp_write_stream) = TcpStream::connect(tcp_ingress_socket_addr)
         .await
         .unwrap()
@@ -233,5 +246,6 @@ async fn test_origin_tcp_write_dropped() {
     assert_eq!(false, result.is_err());
     assert_eq!(Some(0), result.ok());
 
+    tunnel.close(&CLOSED);
     server.close().await.unwrap();
 }
