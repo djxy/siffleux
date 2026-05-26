@@ -1,6 +1,7 @@
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::OnceLock,
+    time::Duration,
 };
 
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
@@ -15,6 +16,7 @@ use siffleux::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
+    time::sleep,
 };
 
 static SERVER_NAME: &'static str = "localhost";
@@ -41,7 +43,7 @@ fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'stati
 async fn test_send_and_receive_data() {
     let (cert_der, key) = init_crypto();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
-    let ingress_id = IngressId::try_from("ingress").unwrap();
+    let ingress_id = IngressId::try_from("111").unwrap();
 
     let server = Server::new_with_self_signed_certificate(
         auth_key.clone(),
@@ -71,7 +73,7 @@ async fn test_send_and_receive_data() {
     let tunnel = Tunnel::connect_to_server_with_certificates(
         auth_key.clone(),
         ingress_id.clone(),
-        TunnelName::try_from("").unwrap(),
+        TunnelName::try_from("aaa").unwrap(),
         server.address().unwrap(),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],

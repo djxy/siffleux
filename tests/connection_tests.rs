@@ -56,6 +56,8 @@ impl Ingress for MockIngress {
 
 fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>) {
     CRYPTO.get_or_init(|| {
+        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+
         rustls::crypto::ring::default_provider()
             .install_default()
             .unwrap();
@@ -178,6 +180,7 @@ async fn test_send_data_over_stream() {
 
     assert_eq!(8, server_tunnel.bytes_sent());
     assert_eq!(value, tunnel_handle.await.unwrap());
+    assert_eq!(8, tunnel.bytes_received());
 
     server.close().await.unwrap();
 }

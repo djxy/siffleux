@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use tracing::info;
+use tracing::{info, warn};
 
 #[derive(Clone)]
 pub struct Server {
@@ -101,6 +101,7 @@ impl Server {
 
     pub async fn close(&self) -> Result<(), Error> {
         if let Some(endpoint) = self.inner.endpoint.lock()?.take() {
+            info!("Closing server");
             endpoint.close(VarInt::from_u32(0), b"done");
 
             Ok(())
@@ -126,14 +127,14 @@ impl Server {
                     let handshake = HandshakeV1Request::read(&mut recv).await.unwrap();
 
                     if handshake.auth_key != self_clone.inner.auth_key {
+                        warn!(
+                            "Refused handshake from tunnel_name={}. Rejected auth_key.",
+                            handshake.tunnel_name
+                        );
+
                         connection.close(AUTH_KEY_REJECTED.code, AUTH_KEY_REJECTED.reason);
                         return;
                     }
-
-                    info!(
-                        "Received handshake for ingress_id={} from name={}",
-                        handshake.ingress_id, handshake.tunnel_name
-                    );
 
                     let Some(ingress) = self_clone
                         .inner
@@ -143,6 +144,11 @@ impl Server {
                         .get(&handshake.ingress_id)
                         .cloned()
                     else {
+                        warn!(
+                            "Refused handshake from tunnel_name={}. ingress_id={} doesn't exist.",
+                            handshake.tunnel_name, handshake.ingress_id,
+                        );
+
                         connection.close(INGRESS_ID_REJECTED.code, INGRESS_ID_REJECTED.reason);
                         return;
                     };
@@ -155,7 +161,7 @@ impl Server {
                     );
 
                     info!(
-                        "Assigned tunnel_id={} to name={} on ingress_id={}",
+                        "Assigned tunnel_id={} to tunnel_name={} on ingress_id={}",
                         tunnel_id, handshake.tunnel_name, handshake.ingress_id
                     );
 
@@ -176,7 +182,7 @@ impl Server {
                 }
                 Err(e) => {
                     connection.close(VarInt::from_u32(1), b"TUNNEL_ID_ERROR");
-                    tracing::warn!("Incoming connection didn't received first stream: {e}");
+                    warn!("Incoming connection didn't received first stream: {e}");
                     return;
                 }
             }
