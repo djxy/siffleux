@@ -1,7 +1,6 @@
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::OnceLock,
-    time::Duration,
 };
 
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
@@ -16,7 +15,6 @@ use siffleux::{
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
-    time::sleep,
 };
 
 static SERVER_NAME: &'static str = "localhost";
