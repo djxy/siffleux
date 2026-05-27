@@ -5,3 +5,4 @@ pub mod error;
 pub mod messages;
 pub mod tunnel;
 pub mod types;
+pub mod utils;

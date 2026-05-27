@@ -24,7 +24,7 @@ struct ServerInner {
 }
 
 impl Server {
-    pub fn new_with_self_signed_certificate(
+    pub fn new_with_certificate(
         auth_key: AuthKey,
         certificate_der: CertificateDer<'static>,
         private_key: PrivatePkcs8KeyDer<'static>,

@@ -1,7 +1,10 @@
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Connection, Endpoint};
-use rustls::RootCertStore;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::CertificateDer;
+use rustls::{DigitallySignedStruct, RootCertStore, SignatureScheme};
+use sha2::{Digest, Sha256};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -28,6 +31,40 @@ pub struct TunnelInner {
 }
 
 impl Tunnel {
+    pub async fn connect_to_server_with_certificate_hash(
+        auth_key: AuthKey,
+        ingress_id: IngressId,
+        name: TunnelName,
+        server_address: SocketAddr,
+        server_name: String,
+        certificate_hash: &str,
+    ) -> Result<Tunnel, Error> {
+        let verifier = Arc::new(CertificateHashVerifier::new(hex::decode(
+            certificate_hash.to_string(),
+        )?));
+
+        let tls_config = rustls::ClientConfig::builder()
+            .dangerous()
+            .with_custom_certificate_verifier(verifier)
+            .with_no_client_auth();
+
+        info!("Connecting to server ingress_id={ingress_id} with certificate hash verification.");
+
+        Self::complete_handshake(
+            Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?
+                .connect_with(
+                    ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls_config)?)),
+                    server_address,
+                    &server_name,
+                )?
+                .await?,
+            auth_key,
+            ingress_id,
+            name,
+        )
+        .await
+    }
+
     pub async fn connect_to_server_with_certificates(
         auth_key: AuthKey,
         ingress_id: IngressId,
@@ -46,7 +83,7 @@ impl Tunnel {
             .with_root_certificates(roots)
             .with_no_client_auth();
 
-        info!("Connecting to ingress_id={ingress_id}");
+        info!("Connecting to server ingress_id={ingress_id} with certificate(s).");
 
         Self::complete_handshake(
             Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?
@@ -310,5 +347,77 @@ impl WriteChannel {
     pub fn close(&mut self) -> Result<(), Error> {
         self.stream.close();
         Ok(self.quinn_stream.finish()?)
+    }
+}
+
+#[derive(Debug)]
+struct CertificateHashVerifier {
+    certificate_hash: Vec<u8>,
+    supported_signature_schemes: Vec<SignatureScheme>,
+}
+
+impl CertificateHashVerifier {
+    fn new(certificate_hash: Vec<u8>) -> Self {
+        Self {
+            certificate_hash,
+            supported_signature_schemes: CryptoProvider::get_default()
+                .unwrap()
+                .signature_verification_algorithms
+                .supported_schemes(),
+        }
+    }
+}
+
+impl ServerCertVerifier for CertificateHashVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        _: &[CertificateDer<'_>],
+        _: &rustls::pki_types::ServerName<'_>,
+        _: &[u8],
+        _: rustls::pki_types::UnixTime,
+    ) -> Result<rustls::client::danger::ServerCertVerified, rustls::Error> {
+        let got = Sha256::digest(end_entity.as_ref()).to_vec();
+        if got == self.certificate_hash {
+            Ok(ServerCertVerified::assertion())
+        } else {
+            Err(rustls::Error::General("certificate hash mismatch".into()))
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls12_signature(
+            message,
+            cert,
+            dss,
+            &CryptoProvider::get_default()
+                .unwrap()
+                .signature_verification_algorithms,
+        )
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        verify_tls13_signature(
+            message,
+            cert,
+            dss,
+            &CryptoProvider::get_default()
+                .unwrap()
+                .signature_verification_algorithms,
+        )
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.supported_signature_schemes.clone()
     }
 }

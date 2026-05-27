@@ -2,13 +2,17 @@ use async_trait::async_trait;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use siffleux::codes::CLOSED;
 use siffleux::ingress::{Ingress, IngressClone};
-use siffleux::{AuthKey, Error, IngressId, Server, Tunnel, TunnelId, TunnelName};
+use siffleux::{
+    AuthKey, Error, IngressId, Server, Tunnel, TunnelId, TunnelName,
+    generate_self_signed_certificate,
+};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::time::sleep;
 
-static CRYPTO: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>)> = OnceLock::new();
+static INIT: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String)> =
+    OnceLock::new();
 
 static SERVER_NAME: &'static str = "localhost";
 
@@ -54,34 +58,22 @@ impl Ingress for MockIngress {
     }
 }
 
-fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>) {
-    CRYPTO.get_or_init(|| {
+fn init() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String) {
+    INIT.get_or_init(|| {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
-        rustls::crypto::ring::default_provider()
-            .install_default()
-            .unwrap();
-
-        let cert = rcgen::generate_simple_self_signed(vec![SERVER_NAME.to_string()]).unwrap();
-        let cert_der = CertificateDer::from(cert.cert);
-        let key = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
-
-        (cert_der, key)
+        generate_self_signed_certificate(SERVER_NAME)
     })
 }
 
 #[tokio::test]
 async fn test_detect_tunnel_closed() {
-    let (cert_der, key) = init_crypto();
+    let (cert_der, key, _cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_self_signed_certificate(
-        auth_key.clone(),
-        cert_der.clone(),
-        key.clone_key(),
-    )
-    .unwrap();
+    let server =
+        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -122,16 +114,12 @@ async fn test_detect_tunnel_closed() {
 
 #[tokio::test]
 async fn test_send_data_over_stream() {
-    let (cert_der, key) = init_crypto();
+    let (cert_der, key, _cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_self_signed_certificate(
-        auth_key.clone(),
-        cert_der.clone(),
-        key.clone_key(),
-    )
-    .unwrap();
+    let server =
+        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -187,16 +175,12 @@ async fn test_send_data_over_stream() {
 
 #[tokio::test]
 async fn test_multiple_handshake_v1_successful() {
-    let (cert_der, key) = init_crypto();
+    let (cert_der, key, _cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_self_signed_certificate(
-        auth_key.clone(),
-        cert_der.clone(),
-        key.clone_key(),
-    )
-    .unwrap();
+    let server =
+        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -241,9 +225,9 @@ async fn test_multiple_handshake_v1_successful() {
 
 #[tokio::test]
 async fn test_handshake_v1_rejected_ingress_id() {
-    let (cert_der, key) = init_crypto();
+    let (cert_der, key, _cert_hash) = init();
 
-    let server = Server::new_with_self_signed_certificate(
+    let server = Server::new_with_certificate(
         AuthKey::try_from("valid_auth_key").unwrap(),
         cert_der.clone(),
         key.clone_key(),
@@ -275,9 +259,9 @@ async fn test_handshake_v1_rejected_ingress_id() {
 
 #[tokio::test]
 async fn test_handshake_v1_rejected_auth_key() {
-    let (cert_der, key) = init_crypto();
+    let (cert_der, key, _cert_hash) = init();
 
-    let server = Server::new_with_self_signed_certificate(
+    let server = Server::new_with_certificate(
         AuthKey::try_from("valid_auth_key").unwrap(),
         cert_der.clone(),
         key.clone_key(),
@@ -305,4 +289,77 @@ async fn test_handshake_v1_rejected_auth_key() {
         server.close().await.unwrap();
         panic!("Should not authenticate.");
     }
+}
+
+#[tokio::test]
+async fn test_connection_with_certificate_hash() {
+    let (cert_der, key, cert_hash) = init();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+
+    let server =
+        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .await
+        .unwrap();
+
+    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
+
+    server.assign_ingress(mock_ingress.clone_box()).unwrap();
+
+    let _ = Tunnel::connect_to_server_with_certificate_hash(
+        auth_key.clone(),
+        ingress_id.clone(),
+        TunnelName::try_from("aaa").unwrap(),
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            server.address().unwrap().port(),
+        ),
+        SERVER_NAME.to_string(),
+        cert_hash,
+    )
+    .await
+    .unwrap();
+
+    server.close().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_connection_with_wrong_certificate_hash() {
+    let (cert_der, key, _) = init();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+
+    let server =
+        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .await
+        .unwrap();
+
+    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
+
+    server.assign_ingress(mock_ingress.clone_box()).unwrap();
+
+    let (_, _, wrong_cert_hash) = generate_self_signed_certificate(SERVER_NAME);
+
+    let result = Tunnel::connect_to_server_with_certificate_hash(
+        auth_key.clone(),
+        ingress_id.clone(),
+        TunnelName::try_from("aaa").unwrap(),
+        SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::LOCALHOST),
+            server.address().unwrap().port(),
+        ),
+        SERVER_NAME.to_string(),
+        &wrong_cert_hash,
+    )
+    .await;
+
+    assert!(matches!(result, Err(Error::TLS(_))));
+
+    server.close().await.unwrap();
 }

@@ -1,6 +1,7 @@
 use clap::Parser;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use sha2::{Digest, Sha256};
+use siffleux::generate_self_signed_certificate;
 
 use crate::cli::{Cli, Commands, Ingress, TcpIngressAgrs};
 
@@ -23,7 +24,7 @@ async fn main() {
 }
 
 async fn start_tcp_ingress(tcp_args: TcpIngressAgrs) {
-    let (cert_der, key, cert_hash) = generate_self_signed_certificate();
+    let (cert_der, key, cert_hash) = generate_self_signed_certificate(SERVER_NAME);
     println!("CERT_HASH={}", cert_hash);
 
     // let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
@@ -47,18 +48,4 @@ async fn start_tcp_ingress(tcp_args: TcpIngressAgrs) {
     // );
 
     // tcp_ingress.start().await.unwrap();
-}
-
-fn generate_self_signed_certificate()
--> (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String) {
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .unwrap();
-
-    let self_signed = rcgen::generate_simple_self_signed(vec![SERVER_NAME.to_string()]).unwrap();
-    let cert_der = CertificateDer::from(self_signed.cert);
-    let key = PrivatePkcs8KeyDer::from(self_signed.signing_key.serialize_der());
-    let cert_hash = Sha256::digest(cert_der.as_ref());
-
-    (cert_der, key, hex::encode(&cert_hash))
 }

@@ -8,6 +8,7 @@ use siffleux::{
     AuthKey, IngressId, Server, Tunnel, TunnelName,
     codes::CLOSED,
     egress::Egress,
+    generate_self_signed_certificate,
     ingress::{Ingress, IngressClone},
     tcp_egress::TcpEgress,
     tcp_ingress::TcpIngress,
@@ -19,36 +20,25 @@ use tokio::{
 
 static SERVER_NAME: &'static str = "localhost";
 
-static CRYPTO: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>)> = OnceLock::new();
+static INIT: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String)> =
+    OnceLock::new();
 
-fn init_crypto() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>) {
-    CRYPTO.get_or_init(|| {
+fn init() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String) {
+    INIT.get_or_init(|| {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
-        rustls::crypto::ring::default_provider()
-            .install_default()
-            .unwrap();
-
-        let cert = rcgen::generate_simple_self_signed(vec![SERVER_NAME.to_string()]).unwrap();
-        let cert_der = CertificateDer::from(cert.cert);
-        let key = PrivatePkcs8KeyDer::from(cert.signing_key.serialize_der());
-
-        (cert_der, key)
+        generate_self_signed_certificate(SERVER_NAME)
     })
 }
 
 #[tokio::test]
 async fn test_send_and_receive_data() {
-    let (cert_der, key) = init_crypto();
+    let (cert_der, key, _cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("111").unwrap();
 
-    let server = Server::new_with_self_signed_certificate(
-        auth_key.clone(),
-        cert_der.clone(),
-        key.clone_key(),
-    )
-    .unwrap();
+    let server =
+        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -122,16 +112,12 @@ async fn test_send_and_receive_data() {
 
 #[tokio::test]
 async fn test_target_tcp_write_dropped() {
-    let (cert_der, key) = init_crypto();
+    let (cert_der, key, _cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_self_signed_certificate(
-        auth_key.clone(),
-        cert_der.clone(),
-        key.clone_key(),
-    )
-    .unwrap();
+    let server =
+        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -194,16 +180,12 @@ async fn test_target_tcp_write_dropped() {
 
 #[tokio::test]
 async fn test_origin_tcp_write_dropped() {
-    let (cert_der, key) = init_crypto();
+    let (cert_der, key, _cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_self_signed_certificate(
-        auth_key.clone(),
-        cert_der.clone(),
-        key.clone_key(),
-    )
-    .unwrap();
+    let server =
+        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))

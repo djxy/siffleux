@@ -10,5 +10,6 @@ pub use common::tunnel::ReadChannel;
 pub use common::tunnel::Tunnel;
 pub use common::tunnel::WriteChannel;
 pub use common::types::*;
+pub use common::utils::*;
 pub use server::ingress::*;
 pub use server::server::Server;
