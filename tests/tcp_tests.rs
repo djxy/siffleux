@@ -27,6 +27,10 @@ fn init() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, Str
     INIT.get_or_init(|| {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
+        rustls::crypto::ring::default_provider()
+            .install_default()
+            .unwrap();
+
         generate_self_signed_certificate(SERVER_NAME)
     })
 }

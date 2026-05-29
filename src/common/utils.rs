@@ -4,10 +4,6 @@ use sha2::{Digest, Sha256};
 pub fn generate_self_signed_certificate(
     server_name: &str,
 ) -> (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String) {
-    rustls::crypto::ring::default_provider()
-        .install_default()
-        .unwrap();
-
     let self_signed = rcgen::generate_simple_self_signed(vec![server_name.to_string()]).unwrap();
     let cert_der = CertificateDer::from(self_signed.cert);
     let key = PrivatePkcs8KeyDer::from(self_signed.signing_key.serialize_der());

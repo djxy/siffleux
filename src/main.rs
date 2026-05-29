@@ -13,6 +13,10 @@ const SERVER_NAME: &'static str = "self-host.siffleux.dev";
 async fn main() {
     let cli = Cli::parse();
 
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .unwrap();
+
     let _ = tracing_subscriber::fmt().try_init();
 
     match cli.command {

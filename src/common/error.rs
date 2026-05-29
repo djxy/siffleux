@@ -64,7 +64,7 @@ pub enum Error {
     IngressIDAlreadyAssigned(IngressId),
 
     #[error("Unknown error: {0}")]
-    TLS(#[from] rustls::Error),
+    TLS(Box<dyn std::error::Error + Send + Sync>),
 
     #[error("IO error: {0}")]
     IO(Box<dyn std::error::Error + Send + Sync>),
@@ -123,6 +123,12 @@ impl From<ConnectError> for Error {
     }
 }
 
+impl From<rustls::Error> for Error {
+    fn from(error: rustls::Error) -> Self {
+        Error::TLS(error.into())
+    }
+}
+
 impl From<ClosedStream> for Error {
     fn from(closed_stream: ClosedStream) -> Self {
         match closed_stream {
@@ -147,6 +153,10 @@ impl From<ConnectionError> for Error {
                 c if c == AUTH_KEY_REJECTED.code => Error::AuthKeyRejected,
                 c if c == INGRESS_ID_REJECTED.code => Error::IngressIdRejected,
                 _ => Error::Unknown(ConnectionError::ApplicationClosed(ac).into()),
+            },
+            ConnectionError::TransportError(te) => match te.code {
+                // c if c.() == 296 => Error::TLS(te.into()),
+                _ => Error::Unknown(te.into()),
             },
             _ => Error::Unknown(connection_error.into()),
         }
