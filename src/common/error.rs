@@ -145,6 +145,8 @@ impl From<NoInitialCipherSuite> for Error {
     }
 }
 
+const CERTIFICATE_HASH_MISMATCH_CODE: u64 = 296;
+
 impl From<ConnectionError> for Error {
     fn from(connection_error: ConnectionError) -> Self {
         match connection_error {
@@ -154,8 +156,8 @@ impl From<ConnectionError> for Error {
                 c if c == INGRESS_ID_REJECTED.code => Error::IngressIdRejected,
                 _ => Error::Unknown(ConnectionError::ApplicationClosed(ac).into()),
             },
-            ConnectionError::TransportError(te) => match te.code {
-                // c if c.() == 296 => Error::TLS(te.into()),
+            ConnectionError::TransportError(te) => match u64::from(te.code) {
+                c if c == CERTIFICATE_HASH_MISMATCH_CODE => Error::TLS(te.into()),
                 _ => Error::Unknown(te.into()),
             },
             _ => Error::Unknown(connection_error.into()),

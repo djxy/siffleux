@@ -363,9 +363,8 @@ async fn test_connection_with_wrong_certificate_hash() {
     )
     .await;
 
-    println!("{:?}", result.err());
-
-    // assert!(matches!(result, Err(Error::TLS(_))));
+    assert!(matches!(result, Err(Error::TLS(_))));
+    assert_eq!(true, result.err().unwrap().to_string().contains("Unknown error: the cryptographic handshake failed: error 40: unexpected error: certificate hash mismatch"));
 
     server.close().await.unwrap();
 }

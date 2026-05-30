@@ -1,6 +1,7 @@
 use std::net::{IpAddr, SocketAddr};
 
 use clap::{Args, Parser, Subcommand};
+use siffleux::{AuthKey, IngressId};
 
 #[derive(Parser)]
 #[command(name = "siffleux", version, about = "Does awesome things")]
@@ -55,6 +56,14 @@ pub struct TcpIngressAgrs {
     /// Port the TCP ingress will listen for TCP connections
     #[arg(long, default_value_t = 8080)]
     pub ingress_port: u16,
+
+    /// ID of the ingress.
+    #[arg(long)]
+    pub ingress_id: Option<IngressId>,
+
+    /// Authentication key used to connect to the ingress.
+    #[arg(long)]
+    pub auth_key: Option<AuthKey>,
 
     #[command(flatten)]
     pub server_args: ServerArgs,

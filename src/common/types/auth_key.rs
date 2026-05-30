@@ -1,3 +1,5 @@
+use std::str::FromStr;
+
 use crate::common::error::Error;
 
 const AUTH_KEY_MAX_LENGTH: usize = 255;
@@ -6,14 +8,14 @@ const AUTH_KEY_MAX_LENGTH: usize = 255;
 pub struct AuthKey(String);
 
 impl AuthKey {
-    pub fn new(value: String) -> Result<Self, Error> {
-        if value.len() > AUTH_KEY_MAX_LENGTH {
+    pub fn new(value: &str) -> Result<Self, Error> {
+        if value.is_empty() || value.len() > AUTH_KEY_MAX_LENGTH {
             return Err(Error::InvalidAuthKey {
-                reason: format!("Auth key too long. Max length: {AUTH_KEY_MAX_LENGTH}"),
+                reason: format!("Auth key has to be between 1 and 255 UTF8 bytes."),
             });
         }
 
-        Ok(Self(value))
+        Ok(Self(value.to_string()))
     }
 
     pub fn value(&self) -> &str {
@@ -29,7 +31,7 @@ impl TryFrom<&str> for AuthKey {
     type Error = Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::new(value.to_string())
+        Self::new(value)
     }
 }
 
@@ -37,6 +39,14 @@ impl TryFrom<String> for AuthKey {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::new(value)
+        Self::new(&value)
+    }
+}
+
+impl FromStr for AuthKey {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::new(s)
     }
 }
