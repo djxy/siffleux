@@ -1,7 +1,7 @@
 use crate::codes::{AUTH_KEY_REJECTED, INGRESS_ID_REJECTED};
 use crate::ingress::Ingress;
 use crate::messages::{HandshakeV1Request, HandshakeV1Response};
-use crate::{AuthKey, Error, IngressId, Tunnel, TunnelId};
+use crate::{Error, HashedAuthKey, IngressId, Tunnel, TunnelId};
 use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
@@ -16,7 +16,7 @@ pub struct Server {
 }
 
 struct ServerInner {
-    auth_key: AuthKey,
+    hashed_auth_key: HashedAuthKey,
     endpoint: Mutex<Option<Endpoint>>,
     ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
     tunnel_id_counter: AtomicU64,
@@ -25,7 +25,7 @@ struct ServerInner {
 
 impl Server {
     pub fn new_with_certificate(
-        auth_key: AuthKey,
+        hashed_auth_key: HashedAuthKey,
         certificate_der: CertificateDer<'static>,
         private_key: PrivatePkcs8KeyDer<'static>,
     ) -> Result<Server, Error> {
@@ -37,13 +37,13 @@ impl Server {
             quinn::crypto::rustls::QuicServerConfig::try_from(crypto)?,
         ));
 
-        Ok(Server::new(auth_key, server_config))
+        Ok(Server::new(hashed_auth_key, server_config))
     }
 
-    fn new(auth_key: AuthKey, server_config: ServerConfig) -> Server {
+    fn new(hashed_auth_key: HashedAuthKey, server_config: ServerConfig) -> Server {
         Server {
             inner: Arc::new(ServerInner {
-                auth_key,
+                hashed_auth_key,
                 endpoint: Mutex::new(None),
                 ingress_by_id: RwLock::new(HashMap::new()),
                 tunnel_id_counter: AtomicU64::new(0),
@@ -126,7 +126,7 @@ impl Server {
                 Ok((mut send, mut recv)) => {
                     let handshake = HandshakeV1Request::read(&mut recv).await.unwrap();
 
-                    if handshake.auth_key != self_clone.inner.auth_key {
+                    if !self_clone.inner.hashed_auth_key.verify(&handshake.auth_key) {
                         warn!(
                             "Refused handshake from tunnel_name={}. Rejected auth_key.",
                             handshake.tunnel_name

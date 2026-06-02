@@ -18,3 +18,4 @@ clap = { version = "4.6.1", features = ["derive"] }
 getrandom = "0.4.2"
 base64 = "0.22.1"
 argon2 = "0.5.3"
+sha2 = "0.11.0"

@@ -6,6 +6,8 @@ use argon2::{
     password_hash::{PasswordHasher, SaltString},
 };
 
+const MAX_LENGTH: usize = 255;
+
 #[derive(Debug, Clone)]
 pub struct AuthKey(String);
 
@@ -16,27 +18,21 @@ impl AuthKey {
                 reason: format!("Auth key can't be empty."),
             });
         }
+        if value.len() > MAX_LENGTH {
+            return Err(Error::InvalidAuthKey {
+                reason: format!("Auth key max length is 255 bytes."),
+            });
+        }
 
-        let mut buf = [0u8; 16];
-
-        getrandom::fill(&mut buf).unwrap();
-
-        let salt = SaltString::encode_b64(&mut buf).unwrap();
-
-        Ok(Self(
-            Argon2::default()
-                .hash_password(value.as_bytes(), &salt)
-                .unwrap()
-                .to_string(),
-        ))
+        Ok(Self(value.to_string()))
     }
 
-    pub fn verify(&self, password: &str) -> bool {
-        let password_hash = PasswordHash::new(&self.0).unwrap();
+    pub fn to_str(&self) -> &str {
+        &self.0
+    }
 
-        Argon2::default()
-            .verify_password(password.as_bytes(), &password_hash)
-            .is_ok()
+    pub fn hash(&self) -> HashedAuthKey {
+        HashedAuthKey::new(self)
     }
 }
 
@@ -61,5 +57,34 @@ impl FromStr for AuthKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::new(s)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct HashedAuthKey(String);
+
+impl HashedAuthKey {
+    fn new(auth_key: &AuthKey) -> Self {
+        let mut buf = [0u8; 16];
+
+        getrandom::fill(&mut buf).unwrap();
+
+        let salt = SaltString::encode_b64(&mut buf).unwrap();
+
+        Self(
+            Argon2::default()
+                .hash_password(auth_key.to_str().as_bytes(), &salt)
+                .unwrap()
+                .to_string(),
+        )
+    }
+
+    /// Verify if the auth key matches the hashed auth key
+    pub fn verify(&self, auth_key: &AuthKey) -> bool {
+        let password_hash = PasswordHash::new(&self.0).unwrap();
+
+        Argon2::default()
+            .verify_password(auth_key.to_str().as_bytes(), &password_hash)
+            .is_ok()
     }
 }

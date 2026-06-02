@@ -7,7 +7,7 @@ const VERSION: u8 = 1;
 
 #[derive(Debug)]
 pub struct HandshakeV1Request {
-    pub auth_key: String,
+    pub auth_key: AuthKey,
     pub ingress_id: IngressId,
     pub tunnel_name: TunnelName,
 }
@@ -20,20 +20,27 @@ pub struct HandshakeV1Response {
 impl HandshakeV1Request {
     pub async fn write(
         send: &mut SendStream,
-        auth_key: &str,
+        auth_key: &AuthKey,
         ingress_id: &IngressId,
         tunnel_name: &TunnelName,
     ) -> Result<(), Error> {
-        let auth_key_len = auth_key.len() as u8;
+        let auth_key_len = auth_key.to_str().len() as u8;
         let mut buffer = BytesMut::with_capacity(
-            (1 + // Version
-                1 + auth_key_len + // Auth key
-                1 + ingress_id.len() + 1 + tunnel_name.len()) as usize,
+            (
+                // Version
+                1 +
+                // Auth key
+                1 + auth_key_len +
+                // Ingress ID
+                1 + ingress_id.len() +
+                // Tunnel name
+                1 + tunnel_name.len()
+            ) as usize,
         );
 
         buffer.put_u8(VERSION);
-        buffer.put_u8(auth_key.len());
-        buffer.put_slice(auth_key.as_bytes());
+        buffer.put_u8(auth_key_len);
+        buffer.put_slice(auth_key.to_str().as_bytes());
         buffer.put_u8(ingress_id.len());
         buffer.put_slice(ingress_id.value().as_bytes());
         buffer.put_u8(tunnel_name.len());

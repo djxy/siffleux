@@ -53,7 +53,7 @@ async fn start_tcp_ingress(tcp_args: TcpIngressAgrs) {
     });
 
     let server =
-        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(
@@ -83,7 +83,7 @@ async fn start_tcp_ingress(tcp_args: TcpIngressAgrs) {
         if provided_auth_key {
             "<AUTH_KEY>"
         } else {
-            auth_key.value()
+            auth_key.to_str()
         }
     );
 

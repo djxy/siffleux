@@ -77,7 +77,7 @@ async fn test_detect_tunnel_closed() {
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
     let server =
-        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -89,7 +89,7 @@ async fn test_detect_tunnel_closed() {
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
     let tunnel = Tunnel::connect_to_server_with_certificates(
-        auth_key.clone(),
+        auth_key,
         ingress_id.clone(),
         TunnelName::try_from("").unwrap(),
         server.address().unwrap(),
@@ -123,7 +123,7 @@ async fn test_send_data_over_stream() {
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
     let server =
-        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -135,7 +135,7 @@ async fn test_send_data_over_stream() {
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
     let tunnel = Tunnel::connect_to_server_with_certificates(
-        auth_key.clone(),
+        auth_key,
         ingress_id.clone(),
         TunnelName::try_from("").unwrap(),
         server.address().unwrap(),
@@ -184,7 +184,7 @@ async fn test_multiple_handshake_v1_successful() {
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
     let server =
-        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -232,7 +232,7 @@ async fn test_handshake_v1_rejected_ingress_id() {
     let (cert_der, key, _cert_hash) = init();
 
     let server = Server::new_with_certificate(
-        AuthKey::try_from("valid_auth_key").unwrap(),
+        AuthKey::try_from("valid_auth_key").unwrap().hash(),
         cert_der.clone(),
         key.clone_key(),
     )
@@ -253,7 +253,7 @@ async fn test_handshake_v1_rejected_ingress_id() {
     )
     .await
     {
-        matches!(e, Error::IngressIdRejected);
+        assert!(matches!(e, Error::IngressIdRejected));
         server.stop().await.unwrap();
     } else {
         server.stop().await.unwrap();
@@ -264,9 +264,10 @@ async fn test_handshake_v1_rejected_ingress_id() {
 #[tokio::test]
 async fn test_handshake_v1_rejected_auth_key() {
     let (cert_der, key, _cert_hash) = init();
+    let ingress_id = IngressId::try_from("iii").unwrap();
 
     let server = Server::new_with_certificate(
-        AuthKey::try_from("valid_auth_key").unwrap(),
+        AuthKey::try_from("valid_auth_key").unwrap().hash(),
         cert_der.clone(),
         key.clone_key(),
     )
@@ -277,9 +278,13 @@ async fn test_handshake_v1_rejected_auth_key() {
         .await
         .unwrap();
 
+    let mock_ingress = MockIngress::new(ingress_id.clone());
+
+    server.assign_ingress(mock_ingress.clone_box()).unwrap();
+
     if let Err(e) = Tunnel::connect_to_server_with_certificates(
         AuthKey::try_from("wrong_auth_key").unwrap(),
-        IngressId::try_from("iii").unwrap(),
+        ingress_id.clone(),
         TunnelName::try_from("ttt").unwrap(),
         server.address().unwrap(),
         SERVER_NAME.to_string(),
@@ -287,7 +292,7 @@ async fn test_handshake_v1_rejected_auth_key() {
     )
     .await
     {
-        matches!(e, Error::AuthKeyRejected);
+        assert!(matches!(e, Error::AuthKeyRejected));
         server.stop().await.unwrap();
     } else {
         server.stop().await.unwrap();
@@ -302,7 +307,7 @@ async fn test_connection_with_certificate_hash() {
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
     let server =
-        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -314,7 +319,7 @@ async fn test_connection_with_certificate_hash() {
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
     let _ = Tunnel::connect_to_server_with_certificate_hash(
-        auth_key.clone(),
+        auth_key,
         ingress_id.clone(),
         TunnelName::try_from("ttt").unwrap(),
         SocketAddr::new(
@@ -337,7 +342,7 @@ async fn test_connection_with_wrong_certificate_hash() {
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
     let server =
-        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -351,7 +356,7 @@ async fn test_connection_with_wrong_certificate_hash() {
     let (_, _, wrong_cert_hash) = generate_self_signed_certificate(SERVER_NAME);
 
     let result = Tunnel::connect_to_server_with_certificate_hash(
-        auth_key.clone(),
+        auth_key,
         ingress_id.clone(),
         TunnelName::try_from("ttt").unwrap(),
         SocketAddr::new(

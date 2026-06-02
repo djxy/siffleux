@@ -5,6 +5,7 @@ mod tunnel_id;
 mod tunnel_name;
 
 pub use auth_key::AuthKey;
+pub use auth_key::HashedAuthKey;
 pub use ingress_id::IngressId;
 pub use stream_id::StreamId;
 pub use tunnel_id::TunnelId;

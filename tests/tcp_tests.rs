@@ -42,7 +42,7 @@ async fn test_send_and_receive_data() {
     let ingress_id = IngressId::try_from("111").unwrap();
 
     let server =
-        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -121,7 +121,7 @@ async fn test_target_tcp_write_dropped() {
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
     let server =
-        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -189,7 +189,7 @@ async fn test_origin_tcp_write_dropped() {
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
     let server =
-        Server::new_with_certificate(auth_key.clone(), cert_der.clone(), key.clone_key()).unwrap();
+        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
