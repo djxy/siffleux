@@ -110,7 +110,7 @@ async fn test_detect_tunnel_closed() {
         tunnel_close_2.closed().await;
     });
 
-    server.close().await.unwrap();
+    server.stop().await.unwrap();
 
     close_handle_1.await.unwrap();
     close_handle_2.await.unwrap();
@@ -174,7 +174,7 @@ async fn test_send_data_over_stream() {
     assert_eq!(value, tunnel_handle.await.unwrap());
     assert_eq!(8, tunnel.bytes_received());
 
-    server.close().await.unwrap();
+    server.stop().await.unwrap();
 }
 
 #[tokio::test]
@@ -224,7 +224,7 @@ async fn test_multiple_handshake_v1_successful() {
         assert_eq!(true, server_tunnel.is_closed());
     }
 
-    server.close().await.unwrap();
+    server.stop().await.unwrap();
 }
 
 #[tokio::test]
@@ -245,8 +245,8 @@ async fn test_handshake_v1_rejected_ingress_id() {
 
     if let Err(e) = Tunnel::connect_to_server_with_certificates(
         AuthKey::try_from("valid_auth_key").unwrap(),
-        IngressId::try_from("").unwrap(),
-        TunnelName::try_from("").unwrap(),
+        IngressId::try_from("iii").unwrap(),
+        TunnelName::try_from("ttt").unwrap(),
         server.address().unwrap(),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
@@ -254,9 +254,9 @@ async fn test_handshake_v1_rejected_ingress_id() {
     .await
     {
         matches!(e, Error::IngressIdRejected);
-        server.close().await.unwrap();
+        server.stop().await.unwrap();
     } else {
-        server.close().await.unwrap();
+        server.stop().await.unwrap();
         panic!("Should not connect.");
     }
 }
@@ -279,8 +279,8 @@ async fn test_handshake_v1_rejected_auth_key() {
 
     if let Err(e) = Tunnel::connect_to_server_with_certificates(
         AuthKey::try_from("wrong_auth_key").unwrap(),
-        IngressId::try_from("").unwrap(),
-        TunnelName::try_from("").unwrap(),
+        IngressId::try_from("iii").unwrap(),
+        TunnelName::try_from("ttt").unwrap(),
         server.address().unwrap(),
         SERVER_NAME.to_string(),
         vec![cert_der.clone()],
@@ -288,9 +288,9 @@ async fn test_handshake_v1_rejected_auth_key() {
     .await
     {
         matches!(e, Error::AuthKeyRejected);
-        server.close().await.unwrap();
+        server.stop().await.unwrap();
     } else {
-        server.close().await.unwrap();
+        server.stop().await.unwrap();
         panic!("Should not authenticate.");
     }
 }
@@ -316,7 +316,7 @@ async fn test_connection_with_certificate_hash() {
     let _ = Tunnel::connect_to_server_with_certificate_hash(
         auth_key.clone(),
         ingress_id.clone(),
-        TunnelName::try_from("aaa").unwrap(),
+        TunnelName::try_from("ttt").unwrap(),
         SocketAddr::new(
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             server.address().unwrap().port(),
@@ -327,7 +327,7 @@ async fn test_connection_with_certificate_hash() {
     .await
     .unwrap();
 
-    server.close().await.unwrap();
+    server.stop().await.unwrap();
 }
 
 #[tokio::test]
@@ -353,7 +353,7 @@ async fn test_connection_with_wrong_certificate_hash() {
     let result = Tunnel::connect_to_server_with_certificate_hash(
         auth_key.clone(),
         ingress_id.clone(),
-        TunnelName::try_from("aaa").unwrap(),
+        TunnelName::try_from("ttt").unwrap(),
         SocketAddr::new(
             IpAddr::V4(Ipv4Addr::LOCALHOST),
             server.address().unwrap().port(),
@@ -366,5 +366,5 @@ async fn test_connection_with_wrong_certificate_hash() {
     assert!(matches!(result, Err(Error::TLS(_))));
     assert_eq!(true, result.err().unwrap().to_string().contains("Unknown error: the cryptographic handshake failed: error 40: unexpected error: certificate hash mismatch"));
 
-    server.close().await.unwrap();
+    server.stop().await.unwrap();
 }

@@ -1,3 +1,5 @@
+use base64::Engine;
+use base64::engine::general_purpose;
 use quinn::crypto::rustls::QuicClientConfig;
 use quinn::{ClientConfig, Connection, Endpoint};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
@@ -39,9 +41,9 @@ impl Tunnel {
         server_name: String,
         certificate_hash: &str,
     ) -> Result<Tunnel, Error> {
-        let verifier = Arc::new(CertificateHashVerifier::new(hex::decode(
-            certificate_hash.to_string(),
-        )?));
+        let verifier = Arc::new(CertificateHashVerifier::new(
+            general_purpose::URL_SAFE.decode(certificate_hash.to_string())?,
+        ));
 
         let tls_config = rustls::ClientConfig::builder()
             .dangerous()

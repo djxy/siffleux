@@ -1,3 +1,4 @@
+use base64::{Engine, engine::general_purpose};
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use sha2::{Digest, Sha256};
 
@@ -9,5 +10,5 @@ pub fn generate_self_signed_certificate(
     let key = PrivatePkcs8KeyDer::from(self_signed.signing_key.serialize_der());
     let cert_hash = Sha256::digest(cert_der.as_ref());
 
-    (cert_der, key, hex::encode(&cert_hash))
+    (cert_der, key, general_purpose::URL_SAFE.encode(cert_hash))
 }

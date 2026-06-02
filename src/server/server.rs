@@ -99,7 +99,7 @@ impl Server {
         Ok(())
     }
 
-    pub async fn close(&self) -> Result<(), Error> {
+    pub async fn stop(&self) -> Result<(), Error> {
         if let Some(endpoint) = self.inner.endpoint.lock()?.take() {
             info!("Closing server");
             endpoint.close(VarInt::from_u32(0), b"done");

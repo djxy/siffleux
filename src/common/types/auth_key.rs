@@ -1,29 +1,42 @@
 use std::str::FromStr;
 
 use crate::common::error::Error;
+use argon2::{
+    Argon2, PasswordHash, PasswordVerifier,
+    password_hash::{PasswordHasher, SaltString},
+};
 
-const AUTH_KEY_MAX_LENGTH: usize = 255;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone)]
 pub struct AuthKey(String);
 
 impl AuthKey {
     pub fn new(value: &str) -> Result<Self, Error> {
-        if value.is_empty() || value.len() > AUTH_KEY_MAX_LENGTH {
+        if value.is_empty() {
             return Err(Error::InvalidAuthKey {
-                reason: format!("Auth key has to be between 1 and 255 UTF8 bytes."),
+                reason: format!("Auth key can't be empty."),
             });
         }
 
-        Ok(Self(value.to_string()))
+        let mut buf = [0u8; 16];
+
+        getrandom::fill(&mut buf).unwrap();
+
+        let salt = SaltString::encode_b64(&mut buf).unwrap();
+
+        Ok(Self(
+            Argon2::default()
+                .hash_password(value.as_bytes(), &salt)
+                .unwrap()
+                .to_string(),
+        ))
     }
 
-    pub fn value(&self) -> &str {
-        &self.0
-    }
+    pub fn verify(&self, password: &str) -> bool {
+        let password_hash = PasswordHash::new(&self.0).unwrap();
 
-    pub fn len(&self) -> u8 {
-        self.0.len() as u8
+        Argon2::default()
+            .verify_password(password.as_bytes(), &password_hash)
+            .is_ok()
     }
 }
 

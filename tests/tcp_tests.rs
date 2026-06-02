@@ -111,7 +111,7 @@ async fn test_send_and_receive_data() {
         &String::from_utf8(buffer[..size].to_vec()).unwrap()
     );
 
-    server.close().await.unwrap();
+    server.stop().await.unwrap();
 }
 
 #[tokio::test]
@@ -179,7 +179,7 @@ async fn test_target_tcp_write_dropped() {
     assert_eq!(false, result.is_err());
     assert_eq!(Some(0), result.ok());
 
-    server.close().await.unwrap();
+    server.stop().await.unwrap();
 }
 
 #[tokio::test]
@@ -233,5 +233,5 @@ async fn test_origin_tcp_write_dropped() {
     assert_eq!(Some(0), result.ok());
 
     tunnel.close(&CLOSED);
-    server.close().await.unwrap();
+    server.stop().await.unwrap();
 }

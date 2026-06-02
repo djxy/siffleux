@@ -1,6 +1,6 @@
 use crate::IngressId;
 use crate::codes::{AUTH_KEY_REJECTED, CLOSED, INGRESS_ID_REJECTED};
-use hex::FromHexError;
+use base64::DecodeError;
 use quinn::crypto::rustls::NoInitialCipherSuite;
 use quinn::{
     ClosedStream, ConnectError, ConnectionError, ReadError, ReadExactError, ReadToEndError,
@@ -73,7 +73,7 @@ pub enum Error {
     PoisonLock(String),
 
     #[error("Unknown error: {0}")]
-    Hex(#[from] FromHexError),
+    Base64(#[from] DecodeError),
 
     #[error("Unknown error: {0}")]
     Unknown(Box<dyn std::error::Error + Send + Sync>),
