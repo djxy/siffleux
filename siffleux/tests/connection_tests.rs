@@ -11,8 +11,11 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 use tokio::time::sleep;
 
-static INIT: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String)> =
-    OnceLock::new();
+static INIT: OnceLock<(
+    CertificateDer<'static>,
+    PrivatePkcs8KeyDer<'static>,
+    Vec<u8>,
+)> = OnceLock::new();
 
 static SERVER_NAME: &'static str = "localhost";
 
@@ -58,7 +61,11 @@ impl Ingress for MockIngress {
     }
 }
 
-fn init() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String) {
+fn init() -> &'static (
+    CertificateDer<'static>,
+    PrivatePkcs8KeyDer<'static>,
+    Vec<u8>,
+) {
     INIT.get_or_init(|| {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 
@@ -327,7 +334,7 @@ async fn test_connection_with_certificate_hash() {
             server.address().unwrap().port(),
         ),
         SERVER_NAME.to_string(),
-        cert_hash,
+        cert_hash.clone(),
     )
     .await
     .unwrap();
@@ -364,7 +371,7 @@ async fn test_connection_with_wrong_certificate_hash() {
             server.address().unwrap().port(),
         ),
         SERVER_NAME.to_string(),
-        &wrong_cert_hash,
+        wrong_cert_hash.clone(),
     )
     .await;
 

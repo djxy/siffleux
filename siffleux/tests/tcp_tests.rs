@@ -20,10 +20,17 @@ use tokio::{
 
 static SERVER_NAME: &'static str = "localhost";
 
-static INIT: OnceLock<(CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String)> =
-    OnceLock::new();
+static INIT: OnceLock<(
+    CertificateDer<'static>,
+    PrivatePkcs8KeyDer<'static>,
+    Vec<u8>,
+)> = OnceLock::new();
 
-fn init() -> &'static (CertificateDer<'static>, PrivatePkcs8KeyDer<'static>, String) {
+fn init() -> &'static (
+    CertificateDer<'static>,
+    PrivatePkcs8KeyDer<'static>,
+    Vec<u8>,
+) {
     INIT.get_or_init(|| {
         let _ = tracing_subscriber::fmt().with_test_writer().try_init();
 

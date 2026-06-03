@@ -1,21 +1,18 @@
-[package]
-name = "siffleux"
+[workspace.package]
 version = "0.1.0"
+authors = ["Djxy <samuel.m.lavoie@gmail.com>"]
 edition = "2024"
+license = "MIT"
+repository = "https://github.com/djxy/siffleux"
 
-[dependencies]
-quinn = "0.11.9"
-tokio = { version = "1.52.3", features = ["full"] }
-rcgen = "0.14.8"
+[workspace.dependencies]
 rustls = "0.23.40"
+tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"
-thiserror = "2.0.18"
-async-trait = "0.1.89"
-bytes = "1.11.1"
-tokio-util = "0.7.18"
-tracing-subscriber = "0.3.23"
-clap = { version = "4.6.1", features = ["derive"] }
-getrandom = "0.4.2"
-base64 = "0.22.1"
-argon2 = "0.5.3"
-sha2 = "0.11.0"
+
+[workspace]
+members = [
+    "siffleux",
+    "siffleux-cli",
+]
+resolver = "3"

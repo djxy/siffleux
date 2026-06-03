@@ -3,6 +3,8 @@ use std::net::{IpAddr, SocketAddr};
 use clap::{Args, Parser, Subcommand};
 use siffleux::{AuthKey, IngressId};
 
+const CERT_SUBJECT_NAME: &'static str = "self-host.siffleux.dev";
+
 #[derive(Parser)]
 #[command(name = "siffleux", version, about = "Does awesome things")]
 pub struct Cli {
@@ -24,11 +26,9 @@ pub enum Commands {
     },
 }
 
-#[derive(Subcommand)]
-pub enum Egress {
-    /// Start a tunnel to redirect TCP connections to a target
-    Tcp(TcpEgressAgrs),
-}
+// ##########################
+// Server commands and args
+// ##########################
 
 #[derive(Subcommand)]
 pub enum Ingress {
@@ -69,6 +69,16 @@ pub struct TcpIngressAgrs {
     pub server_args: ServerArgs,
 }
 
+// ##########################
+// Tunnel commands and args
+// ##########################
+
+#[derive(Subcommand)]
+pub enum Egress {
+    /// Start a tunnel to redirect TCP connections to a target
+    Tcp(TcpEgressAgrs),
+}
+
 #[derive(Args)]
 pub struct TunnelArgs {
     /// IP address of the server to connect the tunnel
@@ -78,6 +88,10 @@ pub struct TunnelArgs {
     /// Port of the server to connect the tunnel
     #[arg(long, default_value_t = 8765)]
     pub server_port: u16,
+
+    /// Certificate subject name
+    #[arg(long, default_value = CERT_SUBJECT_NAME)]
+    pub cert_subject_name: String,
 
     /// Port of the server to connect the tunnel
     #[arg(long)]
