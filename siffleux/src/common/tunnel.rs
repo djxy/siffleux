@@ -49,7 +49,7 @@ impl Tunnel {
         info!("Connecting to server ingress_id={ingress_id} with certificate hash verification.");
 
         Self::complete_handshake(
-            Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?
+            Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))?
                 .connect_with(
                     ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls_config)?)),
                     server_address,

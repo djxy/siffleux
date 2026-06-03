@@ -3,7 +3,7 @@ use std::net::{IpAddr, SocketAddr};
 use clap::{Args, Parser, Subcommand};
 use siffleux::{AuthKey, IngressId};
 
-const CERT_SUBJECT_NAME: &'static str = "self-host.siffleux.dev";
+const CERT_SUBJECT_ALT_NAME: &'static str = "self-host.siffleux.dev";
 
 #[derive(Parser)]
 #[command(name = "siffleux", version, about = "Does awesome things")]
@@ -89,9 +89,9 @@ pub struct TunnelArgs {
     #[arg(long, default_value_t = 8765)]
     pub server_port: u16,
 
-    /// Certificate subject name
-    #[arg(long, default_value = CERT_SUBJECT_NAME)]
-    pub cert_subject_name: String,
+    /// Certificate subject alt name
+    #[arg(long, default_value = CERT_SUBJECT_ALT_NAME)]
+    pub cert_subject_alt_name: String,
 
     /// Port of the server to connect the tunnel
     #[arg(long)]
