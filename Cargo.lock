@@ -1315,6 +1315,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "clap",
+ "getrandom 0.4.2",
  "rustls",
  "siffleux",
  "tokio",

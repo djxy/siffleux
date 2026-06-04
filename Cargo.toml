@@ -6,6 +6,7 @@ license = "MIT"
 repository = "https://github.com/djxy/siffleux"
 
 [workspace.dependencies]
+getrandom = "0.4.2"
 rustls = "0.23.40"
 tokio = { version = "1.52.3", features = ["full"] }
 tracing = "0.1.44"

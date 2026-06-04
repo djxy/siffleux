@@ -1,32 +1,36 @@
 use std::net::SocketAddr;
 
-use base64::{Engine, engine::general_purpose};
+use base64::Engine;
 use siffleux::{
     AuthKey, IngressId, Server, generate_self_signed_certificate, ingress::Ingress,
     tcp_ingress::TcpIngress,
 };
 use tracing::info;
 
-use crate::cli::TcpIngressAgrs;
+use crate::{
+    cli::{ServerArgs, TcpIngressAgrs},
+    utils::{BASE64_ENGINE, generate_secure_random_key, wait_for_shutdown_signal},
+};
 
-pub async fn start_tcp_ingress(tcp_args: TcpIngressAgrs) {
-    let (cert_der, key, cert_hash) = generate_self_signed_certificate(SERVER_NAME);
+pub async fn start_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs) {
+    let (cert_der, key, cert_hash) =
+        generate_self_signed_certificate(&server_args.cert_subject_alt_name);
 
     let provided_auth_key = tcp_args.auth_key.is_some();
     let auth_key = tcp_args
         .auth_key
-        .unwrap_or_else(|| AuthKey::try_from(generate_secure_random_key()).unwrap());
+        .unwrap_or_else(|| AuthKey::try_from(generate_secure_random_key::<32>()).unwrap());
     let ingress_id = tcp_args
         .ingress_id
-        .unwrap_or_else(|| IngressId::try_from(generate_secure_random_key()).unwrap());
+        .unwrap_or_else(|| IngressId::try_from(generate_secure_random_key::<16>()).unwrap());
 
     let server =
         Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(
-            tcp_args.server_args.tunnel_ip,
-            tcp_args.server_args.tunnel_port,
+            server_args.tunnel_ip,
+            server_args.tunnel_port,
         ))
         .await
         .unwrap();
@@ -41,9 +45,10 @@ pub async fn start_tcp_ingress(tcp_args: TcpIngressAgrs) {
     info!("Connect client");
     info!(
         "
-        siffleux tunnel tcp \\
-        --target-ip <TARGET_IP> --target-port <TARGET_PORT> \\
+        siffleux tunnel \\
         --server-ip <SERVER_IP> --server-port <SERVER_PORT> \\
+         tcp \\
+         --target-ip <TARGET_IP> --target-port <TARGET_PORT> \\
         --ingress-id {ingress_id} \\
         --auth-key {} \\
         --cert-hash {}
@@ -53,6 +58,8 @@ pub async fn start_tcp_ingress(tcp_args: TcpIngressAgrs) {
         } else {
             auth_key.to_str()
         },
-        general_purpose::URL_SAFE.encode(cert_hash)
+        BASE64_ENGINE.encode(cert_hash)
     );
+
+    wait_for_shutdown_signal().await;
 }

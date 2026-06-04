@@ -16,6 +16,9 @@ pub struct Cli {
 pub enum Commands {
     /// Start a server
     Server {
+        #[command(flatten)]
+        server_args: ServerArgs,
+
         #[command(subcommand)]
         ingress: Ingress,
     },
@@ -45,6 +48,10 @@ pub struct ServerArgs {
     /// Port the server will listen for tunnel connections
     #[arg(long, default_value_t = 8765)]
     pub tunnel_port: u16,
+
+    /// Certificate subject alt name
+    #[arg(long, default_value = CERT_SUBJECT_ALT_NAME)]
+    pub cert_subject_alt_name: String,
 }
 
 #[derive(Args)]
@@ -64,9 +71,6 @@ pub struct TcpIngressAgrs {
     /// Authentication key used to connect to the ingress.
     #[arg(long)]
     pub auth_key: Option<AuthKey>,
-
-    #[command(flatten)]
-    pub server_args: ServerArgs,
 }
 
 // ##########################
