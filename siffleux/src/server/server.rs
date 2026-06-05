@@ -2,12 +2,13 @@ use crate::codes::{AUTH_KEY_REJECTED, INGRESS_ID_REJECTED};
 use crate::ingress::Ingress;
 use crate::messages::{HandshakeV1Request, HandshakeV1Response};
 use crate::{Error, IngressId, Tunnel, TunnelId};
-use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
+use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
+use std::time::Duration;
 use tracing::{info, warn};
 
 #[derive(Clone)]
@@ -31,9 +32,19 @@ impl Server {
             .with_no_client_auth()
             .with_single_cert(vec![certificate_der], PrivateKeyDer::from(private_key))?;
 
-        let server_config = ServerConfig::with_crypto(Arc::new(
+        let mut transport_config = TransportConfig::default();
+
+        // Set how often to send keep-alive packets (must be < idle_timeout)
+        transport_config.keep_alive_interval(Some(Duration::from_secs(1)));
+
+        // Set max idle time before the connection is considered dead
+        transport_config.max_idle_timeout(Some(Duration::from_secs(5).try_into().unwrap()));
+
+        let mut server_config = ServerConfig::with_crypto(Arc::new(
             quinn::crypto::rustls::QuicServerConfig::try_from(crypto)?,
         ));
+
+        server_config.transport_config(Arc::new(transport_config));
 
         Ok(Server::new(server_config))
     }

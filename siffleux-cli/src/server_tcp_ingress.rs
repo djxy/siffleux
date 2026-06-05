@@ -2,7 +2,8 @@ use std::net::SocketAddr;
 
 use base64::Engine;
 use siffleux::{
-    AuthKey, IngressId, Server, generate_self_signed_certificate, ingress::Ingress,
+    AuthKey, IngressId, Server, generate_self_signed_certificate,
+    ingress::{Ingress, IngressClone},
     tcp_ingress::TcpIngress,
 };
 use tracing::info;
@@ -41,6 +42,8 @@ pub async fn start_server_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngr
     );
 
     tcp_ingress.start().await.unwrap();
+
+    server.assign_ingress(tcp_ingress.clone_box()).unwrap();
 
     info!(
         "

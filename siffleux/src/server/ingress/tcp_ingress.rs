@@ -52,6 +52,12 @@ impl Ingress for TcpIngress {
             }
         });
 
+        info!(
+            "Added tunnel_name={} to ingres_id={}",
+            tunnel.name(),
+            self.id()
+        );
+
         self.inner.tunnels.write()?.push(tunnel);
 
         Ok(())
