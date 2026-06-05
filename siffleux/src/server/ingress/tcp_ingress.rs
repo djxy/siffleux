@@ -11,7 +11,7 @@ use tracing::{error, info};
 
 use crate::common::tunnel::{ReadChannel, WriteChannel};
 use crate::ingress::Ingress;
-use crate::{Error, IngressId, Tunnel};
+use crate::{Error, HashedAuthKey, IngressId, Tunnel};
 
 #[derive(Clone)]
 pub struct TcpIngress {
@@ -20,6 +20,7 @@ pub struct TcpIngress {
 
 struct TcpIngressInner {
     id: IngressId,
+    hashed_auth_key: HashedAuthKey,
     socket_addr: SocketAddr,
     tunnels: RwLock<Vec<Tunnel>>,
     tcp_listener: tokio::sync::Mutex<Option<Arc<TcpListener>>>,
@@ -31,6 +32,10 @@ struct TcpIngressInner {
 impl Ingress for TcpIngress {
     fn id(&self) -> &IngressId {
         &self.inner.id
+    }
+
+    fn hashed_auth_key(&self) -> &HashedAuthKey {
+        &self.inner.hashed_auth_key
     }
 
     fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
@@ -98,10 +103,11 @@ impl Ingress for TcpIngress {
 }
 
 impl TcpIngress {
-    pub fn new(id: IngressId, socket_addr: SocketAddr) -> Self {
+    pub fn new(id: IngressId, hashed_auth_key: HashedAuthKey, socket_addr: SocketAddr) -> Self {
         Self {
             inner: Arc::new(TcpIngressInner {
                 id,
+                hashed_auth_key,
                 socket_addr,
                 tunnels: RwLock::new(Vec::new()),
                 tcp_listener: tokio::sync::Mutex::new(None),

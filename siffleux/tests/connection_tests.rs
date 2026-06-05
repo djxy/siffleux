@@ -3,7 +3,7 @@ use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use siffleux::codes::CLOSED;
 use siffleux::ingress::{Ingress, IngressClone};
 use siffleux::{
-    AuthKey, Error, IngressId, Server, Tunnel, TunnelId, TunnelName,
+    AuthKey, Error, HashedAuthKey, IngressId, Server, Tunnel, TunnelId, TunnelName,
     generate_self_signed_certificate,
 };
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -26,14 +26,16 @@ struct MockIngress {
 
 struct MockIngressInner {
     id: IngressId,
+    hashed_auth_key: HashedAuthKey,
     tunnels: Mutex<Vec<Tunnel>>,
 }
 
 impl MockIngress {
-    fn new(id: IngressId) -> Self {
+    fn new(id: IngressId, hashed_auth_key: HashedAuthKey) -> Self {
         Self {
             inner: Arc::new(MockIngressInner {
                 id,
+                hashed_auth_key,
                 tunnels: Mutex::new(vec![]),
             }),
         }
@@ -44,6 +46,10 @@ impl MockIngress {
 impl Ingress for MockIngress {
     fn id(&self) -> &IngressId {
         &self.inner.id
+    }
+
+    fn hashed_auth_key(&self) -> &HashedAuthKey {
+        &self.inner.hashed_auth_key
     }
 
     fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
@@ -83,15 +89,14 @@ async fn test_detect_tunnel_closed() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server =
-        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
+    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
-    let mock_ingress = MockIngress::new(ingress_id.clone());
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
@@ -129,15 +134,14 @@ async fn test_send_data_over_stream() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server =
-        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
+    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
-    let mock_ingress = MockIngress::new(ingress_id.clone());
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
@@ -190,15 +194,14 @@ async fn test_multiple_handshake_v1_successful() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server =
-        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
+    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
-    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
@@ -238,12 +241,7 @@ async fn test_multiple_handshake_v1_successful() {
 async fn test_handshake_v1_rejected_ingress_id() {
     let (cert_der, key, _cert_hash) = init();
 
-    let server = Server::new_with_certificate(
-        AuthKey::try_from("valid_auth_key").unwrap().hash(),
-        cert_der.clone(),
-        key.clone_key(),
-    )
-    .unwrap();
+    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -273,19 +271,17 @@ async fn test_handshake_v1_rejected_auth_key() {
     let (cert_der, key, _cert_hash) = init();
     let ingress_id = IngressId::try_from("iii").unwrap();
 
-    let server = Server::new_with_certificate(
-        AuthKey::try_from("valid_auth_key").unwrap().hash(),
-        cert_der.clone(),
-        key.clone_key(),
-    )
-    .unwrap();
+    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
-    let mock_ingress = MockIngress::new(ingress_id.clone());
+    let mock_ingress = MockIngress::new(
+        ingress_id.clone(),
+        AuthKey::try_from("valid_auth_key").unwrap().hash(),
+    );
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
@@ -313,15 +309,14 @@ async fn test_connection_with_certificate_hash() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server =
-        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
+    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
-    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
@@ -348,15 +343,14 @@ async fn test_connection_with_wrong_certificate_hash() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server =
-        Server::new_with_certificate(auth_key.hash(), cert_der.clone(), key.clone_key()).unwrap();
+    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
 
-    let mock_ingress = Arc::new(MockIngress::new(ingress_id.clone()));
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 

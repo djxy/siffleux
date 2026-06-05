@@ -12,7 +12,7 @@ use crate::{
     utils::{BASE64_ENGINE, generate_secure_random_key, wait_for_shutdown_signal},
 };
 
-pub async fn start_server_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs) {
+pub async fn start_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs) {
     let (cert_der, key, cert_hash) =
         generate_self_signed_certificate(&server_args.cert_subject_alt_name);
 
@@ -45,11 +45,11 @@ pub async fn start_server_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngr
     info!(
         "
     siffleux tunnel \\
-        --server-ip <SERVER_IP>:<SERVER_PORT> \\
+        --server-ip <SERVER_IP> --server-port <SERVER_PORT> \\
         --cert-hash {} \\
         tcp \\
-        --ingress-id {ingress_id} --auth-key {} \\
-        --target <TARGET_IP>:<TARGET_PORT>
+        --id {ingress_id} --auth-key {} \\
+        --target-ip <TARGET_IP> --target-port <TARGET_PORT> \\
         ",
         BASE64_ENGINE.encode(cert_hash),
         if provided_auth_key {

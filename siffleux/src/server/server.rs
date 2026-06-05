@@ -1,7 +1,7 @@
 use crate::codes::{AUTH_KEY_REJECTED, INGRESS_ID_REJECTED};
 use crate::ingress::Ingress;
 use crate::messages::{HandshakeV1Request, HandshakeV1Response};
-use crate::{Error, HashedAuthKey, IngressId, Tunnel, TunnelId};
+use crate::{Error, IngressId, Tunnel, TunnelId};
 use quinn::{Endpoint, Incoming, ServerConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
@@ -16,7 +16,6 @@ pub struct Server {
 }
 
 struct ServerInner {
-    hashed_auth_key: HashedAuthKey,
     endpoint: Mutex<Option<Endpoint>>,
     ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
     tunnel_id_counter: AtomicU64,
@@ -25,7 +24,6 @@ struct ServerInner {
 
 impl Server {
     pub fn new_with_certificate(
-        hashed_auth_key: HashedAuthKey,
         certificate_der: CertificateDer<'static>,
         private_key: PrivatePkcs8KeyDer<'static>,
     ) -> Result<Server, Error> {
@@ -37,13 +35,12 @@ impl Server {
             quinn::crypto::rustls::QuicServerConfig::try_from(crypto)?,
         ));
 
-        Ok(Server::new(hashed_auth_key, server_config))
+        Ok(Server::new(server_config))
     }
 
-    fn new(hashed_auth_key: HashedAuthKey, server_config: ServerConfig) -> Server {
+    fn new(server_config: ServerConfig) -> Server {
         Server {
             inner: Arc::new(ServerInner {
-                hashed_auth_key,
                 endpoint: Mutex::new(None),
                 ingress_by_id: RwLock::new(HashMap::new()),
                 tunnel_id_counter: AtomicU64::new(0),
@@ -126,16 +123,6 @@ impl Server {
                 Ok((mut send, mut recv)) => {
                     let handshake = HandshakeV1Request::read(&mut recv).await.unwrap();
 
-                    if !self_clone.inner.hashed_auth_key.verify(&handshake.auth_key) {
-                        warn!(
-                            "Refused handshake from tunnel_name={}. Rejected auth_key.",
-                            handshake.tunnel_name
-                        );
-
-                        connection.close(AUTH_KEY_REJECTED.code, AUTH_KEY_REJECTED.reason);
-                        return;
-                    }
-
                     let Some(ingress) = self_clone
                         .inner
                         .ingress_by_id
@@ -152,6 +139,16 @@ impl Server {
                         connection.close(INGRESS_ID_REJECTED.code, INGRESS_ID_REJECTED.reason);
                         return;
                     };
+
+                    if !ingress.hashed_auth_key().verify(&handshake.auth_key) {
+                        warn!(
+                            "Refused handshake from tunnel_name={}. Rejected auth_key.",
+                            handshake.tunnel_name
+                        );
+
+                        connection.close(AUTH_KEY_REJECTED.code, AUTH_KEY_REJECTED.reason);
+                        return;
+                    }
 
                     let tunnel_id = TunnelId::new(
                         self_clone
