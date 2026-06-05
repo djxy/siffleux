@@ -1,5 +1,8 @@
 use crate::common::error::Error;
-use std::fmt::{Display, Formatter};
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
 
 const TUNNEL_NAME_MAX_LENGTH: usize = 255;
 
@@ -46,5 +49,13 @@ impl TryFrom<String> for TunnelName {
 impl Display for TunnelName {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         Ok(self.0.fmt(f)?)
+    }
+}
+
+impl FromStr for TunnelName {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        TunnelName::try_from(s)
     }
 }

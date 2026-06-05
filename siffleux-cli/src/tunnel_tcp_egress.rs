@@ -1,63 +1,28 @@
-use std::net::SocketAddr;
-
 use base64::Engine;
-use siffleux::{
-    AuthKey, IngressId, Server, generate_self_signed_certificate, ingress::Ingress,
-    tcp_ingress::TcpIngress,
-};
-use tracing::info;
+use siffleux::{Tunnel, TunnelName, egress::Egress, tcp_egress::TcpEgress};
 
 use crate::{
-    cli::{ServerArgs, TcpIngressAgrs},
+    cli::{TcpEgressAgrs, TunnelArgs},
     utils::{BASE64_ENGINE, generate_secure_random_key, wait_for_shutdown_signal},
 };
 
-pub async fn start_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs) {
-    let (cert_der, key, cert_hash) =
-        generate_self_signed_certificate(&server_args.cert_subject_alt_name);
+pub async fn start_tcp_egress(tunnel_args: TunnelArgs, tcp_args: TcpEgressAgrs) {
+    let tunnel = Tunnel::connect_to_server_with_certificate_hash(
+        tunnel_args.auth_key,
+        tunnel_args.ingress_id,
+        tunnel_args
+            .name
+            .unwrap_or_else(|| TunnelName::try_from(generate_secure_random_key::<16>()).unwrap()),
+        tunnel_args.server,
+        tunnel_args.cert_subject_alt_name,
+        BASE64_ENGINE.decode(tunnel_args.cert_hash).unwrap(),
+    )
+    .await
+    .unwrap();
 
-    let provided_auth_key = tcp_args.auth_key.is_some();
-    let auth_key = tcp_args
-        .auth_key
-        .unwrap_or_else(|| AuthKey::try_from(generate_secure_random_key::<32>()).unwrap());
-    let ingress_id = tcp_args
-        .ingress_id
-        .unwrap_or_else(|| IngressId::try_from(generate_secure_random_key::<16>()).unwrap());
+    let tcp_egress = TcpEgress::new(tunnel.clone(), tcp_args.target);
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
-
-    server
-        .listen(SocketAddr::new(
-            server_args.tunnel_ip,
-            server_args.tunnel_port,
-        ))
-        .await
-        .unwrap();
-
-    let tcp_ingress = TcpIngress::new(
-        ingress_id.clone(),
-        auth_key.hash(),
-        SocketAddr::new(tcp_args.ip, tcp_args.port),
-    );
-
-    tcp_ingress.start().await.unwrap();
-
-    info!(
-        "
-    siffleux tunnel \\
-        --server-ip <SERVER_IP> --server-port <SERVER_PORT> \\
-        --cert-hash {} \\
-        tcp \\
-        --id {ingress_id} --auth-key {} \\
-        --target-ip <TARGET_IP> --target-port <TARGET_PORT> \\
-        ",
-        BASE64_ENGINE.encode(cert_hash),
-        if provided_auth_key {
-            "<AUTH_KEY>"
-        } else {
-            auth_key.to_str()
-        },
-    );
+    tcp_egress.start().await.unwrap();
 
     wait_for_shutdown_signal().await;
 }

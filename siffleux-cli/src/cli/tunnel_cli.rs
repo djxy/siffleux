@@ -1,17 +1,17 @@
 use std::net::SocketAddr;
 
 use clap::{Args, Subcommand};
-use siffleux::{AuthKey, IngressId};
+use siffleux::{AuthKey, IngressId, TunnelName};
 
 use crate::cli::CERT_SUBJECT_ALT_NAME;
 
 #[derive(Args)]
-pub struct TunnelSubCommand {
+pub struct TunnelCommand {
     #[command(flatten)]
-    tunnel_args: TunnelArgs,
+    pub tunnel_args: TunnelArgs,
 
     #[command(subcommand)]
-    egress: Egress,
+    pub egress: EgressCommand,
 }
 
 #[derive(Args)]
@@ -19,6 +19,18 @@ pub struct TunnelArgs {
     /// Address (ip:port) of the server to connect the tunnel
     #[arg(long)]
     pub server: SocketAddr,
+
+    /// ID of the ingress to receive ingress connections
+    #[arg(long)]
+    pub ingress_id: IngressId,
+
+    /// Authentication key used to connect to the ingress
+    #[arg(long)]
+    pub auth_key: AuthKey,
+
+    /// Name to identify the tunnel on the server
+    #[arg(long)]
+    pub name: Option<TunnelName>,
 
     /// Hash of the server certificate to validate
     #[arg(long)]
@@ -30,21 +42,13 @@ pub struct TunnelArgs {
 }
 
 #[derive(Subcommand)]
-pub enum Egress {
+pub enum EgressCommand {
     /// Start a tunnel to redirect TCP connections to a target
     Tcp(TcpEgressAgrs),
 }
 
 #[derive(Args)]
 pub struct TcpEgressAgrs {
-    /// ID of the ingress to receive TCP connections from
-    #[arg(long)]
-    pub ingress_id: IngressId,
-
-    /// Authentication key used to connect to the ingress
-    #[arg(long)]
-    pub auth_key: AuthKey,
-
     /// Address (ip:port) to send the TCP connections received from the ingress
     #[arg(long)]
     pub target: SocketAddr,

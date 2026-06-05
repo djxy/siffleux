@@ -1,6 +1,6 @@
 use clap::{Parser, Subcommand};
 
-use crate::cli::{ServerSubCommand, TunnelSubCommand};
+use crate::cli::{ServerCommand, TunnelCommand};
 
 pub const CERT_SUBJECT_ALT_NAME: &'static str = "self-host.siffleux.dev";
 
@@ -14,7 +14,7 @@ pub struct Cli {
 #[derive(Subcommand)]
 pub enum Commands {
     /// Start a server
-    Server(ServerSubCommand),
+    Server(ServerCommand),
     /// Start a tunnel
-    Tunnel(TunnelSubCommand),
+    Tunnel(TunnelCommand),
 }

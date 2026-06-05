@@ -6,16 +6,16 @@ use siffleux::{AuthKey, IngressId};
 use crate::cli::CERT_SUBJECT_ALT_NAME;
 
 #[derive(Args)]
-pub struct ServerSubCommand {
+pub struct ServerCommand {
     #[command(flatten)]
     pub server_args: ServerArgs,
 
     #[command(subcommand)]
-    pub ingress: IngressSubCommand,
+    pub ingress: IngressCommand,
 }
 
 #[derive(Subcommand)]
-pub enum IngressSubCommand {
+pub enum IngressCommand {
     /// Start a server with a TCP ingress
     Tcp(TcpIngressAgrs),
 }
