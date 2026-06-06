@@ -1,6 +1,6 @@
 use crate::codes::{AUTH_KEY_REJECTED, INGRESS_ID_REJECTED};
 use crate::ingress::Ingress;
-use crate::messages::{HandshakeV1Request, HandshakeV1Response};
+use crate::protocols::messages::authentication;
 use crate::{Error, IngressId, Tunnel, TunnelId};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -132,7 +132,7 @@ impl Server {
 
             match connection.accept_bi().await {
                 Ok((mut send, mut recv)) => {
-                    let handshake = HandshakeV1Request::read(&mut recv).await.unwrap();
+                    let handshake = authentication::v1::Request::read(&mut recv).await.unwrap();
 
                     let Some(ingress) = self_clone
                         .inner
@@ -173,7 +173,7 @@ impl Server {
                         tunnel_id, handshake.tunnel_name, handshake.ingress_id
                     );
 
-                    HandshakeV1Response::write(&mut send, tunnel_id)
+                    authentication::v1::Response::write(&mut send, tunnel_id)
                         .await
                         .unwrap();
 

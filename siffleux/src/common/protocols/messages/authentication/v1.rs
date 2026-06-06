@@ -3,21 +3,19 @@ use quinn::{RecvStream, SendStream};
 
 use crate::{AuthKey, Error, IngressId, TunnelId, TunnelName};
 
-const VERSION: u8 = 1;
-
 #[derive(Debug)]
-pub struct HandshakeV1Request {
+pub struct Request {
     pub auth_key: AuthKey,
     pub ingress_id: IngressId,
     pub tunnel_name: TunnelName,
 }
 
 #[derive(Debug)]
-pub struct HandshakeV1Response {
+pub struct Response {
     pub tunnel_id: TunnelId,
 }
 
-impl HandshakeV1Request {
+impl Request {
     pub async fn write(
         send: &mut SendStream,
         auth_key: &AuthKey,
@@ -27,8 +25,6 @@ impl HandshakeV1Request {
         let auth_key_len = auth_key.to_str().len() as u8;
         let mut buffer = BytesMut::with_capacity(
             (
-                // Version
-                1 +
                 // Auth key
                 1 + auth_key_len +
                 // Ingress ID
@@ -38,7 +34,6 @@ impl HandshakeV1Request {
             ) as usize,
         );
 
-        buffer.put_u8(VERSION);
         buffer.put_u8(auth_key_len);
         buffer.put_slice(auth_key.to_str().as_bytes());
         buffer.put_u8(ingress_id.len());
@@ -51,17 +46,8 @@ impl HandshakeV1Request {
         Ok(())
     }
 
-    pub async fn read(recv: &mut RecvStream) -> Result<HandshakeV1Request, Error> {
+    pub async fn read(recv: &mut RecvStream) -> Result<Request, Error> {
         let mut buffer = [0u8; 255];
-        recv.read_exact(&mut buffer[..1]).await?;
-        let version = buffer[0];
-
-        if version != VERSION {
-            return Err(Error::IncompatibleVersion {
-                expected: VERSION,
-                received: version,
-            });
-        }
 
         recv.read_exact(&mut buffer[..1]).await?;
         let auth_key_len = buffer[0] as usize;
@@ -84,19 +70,15 @@ impl HandshakeV1Request {
 
         let tunnel_name = String::from_utf8(buffer[..tunnel_name_len].to_vec())?;
 
-        Ok(HandshakeV1Request::new(
+        Ok(Request::new(
             AuthKey::try_from(auth_key)?,
             IngressId::try_from(ingress_id)?,
             TunnelName::try_from(tunnel_name)?,
         ))
     }
 
-    pub fn new(
-        auth_key: AuthKey,
-        ingress_id: IngressId,
-        tunnel_name: TunnelName,
-    ) -> HandshakeV1Request {
-        HandshakeV1Request {
+    pub fn new(auth_key: AuthKey, ingress_id: IngressId, tunnel_name: TunnelName) -> Self {
+        Self {
             auth_key,
             ingress_id,
             tunnel_name,
@@ -104,22 +86,22 @@ impl HandshakeV1Request {
     }
 }
 
-impl HandshakeV1Response {
+impl Response {
     pub async fn write(send: &mut SendStream, id: TunnelId) -> Result<(), Error> {
         send.write_all(&id.to_bytes()).await?;
 
         Ok(())
     }
 
-    pub async fn read(recv: &mut RecvStream) -> Result<HandshakeV1Response, Error> {
+    pub async fn read(recv: &mut RecvStream) -> Result<Response, Error> {
         let mut buffer = [0u8; 8];
 
         recv.read_exact(&mut buffer[..]).await?;
 
-        Ok(HandshakeV1Response::new(TunnelId::from_bytes(buffer)))
+        Ok(Response::new(TunnelId::from_bytes(buffer)))
     }
 
-    pub fn new(tunnel_id: TunnelId) -> HandshakeV1Response {
-        HandshakeV1Response { tunnel_id }
+    pub fn new(tunnel_id: TunnelId) -> Self {
+        Self { tunnel_id }
     }
 }

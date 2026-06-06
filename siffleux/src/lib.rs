@@ -5,7 +5,7 @@ pub use common::code::*;
 pub use common::codes::*;
 pub use common::egress::*;
 pub use common::error::Error;
-pub use common::messages;
+pub use common::protocols;
 pub use common::tunnel::ReadChannel;
 pub use common::tunnel::Tunnel;
 pub use common::tunnel::WriteChannel;

@@ -12,7 +12,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::codes::CLOSED;
-use crate::messages::{HandshakeV1Request, HandshakeV1Response};
+use crate::protocols::messages::authentication;
 use crate::{AuthKey, Code, Error, IngressId, StreamId, TunnelId, TunnelName};
 
 #[derive(Clone)]
@@ -27,7 +27,6 @@ pub struct TunnelInner {
     ingress_id: IngressId,
     bytes_sent: AtomicU64,
     bytes_received: AtomicU64,
-    stream_id_counter: AtomicU64,
 }
 
 impl Tunnel {
@@ -108,9 +107,9 @@ impl Tunnel {
 
         info!("Sending handshake to ingress_id={ingress_id}");
 
-        HandshakeV1Request::write(&mut send, &auth_key, &ingress_id, &name).await?;
+        authentication::v1::Request::write(&mut send, &auth_key, &ingress_id, &name).await?;
 
-        let response = HandshakeV1Response::read(&mut recv).await?;
+        let response = authentication::v1::Response::read(&mut recv).await?;
 
         recv.read_to_end(0).await?;
 
@@ -141,7 +140,6 @@ impl Tunnel {
                 ingress_id,
                 bytes_sent: AtomicU64::new(0),
                 bytes_received: AtomicU64::new(0),
-                stream_id_counter: AtomicU64::new(0),
             }),
         }
     }
@@ -181,10 +179,7 @@ impl Tunnel {
 
     pub async fn create_stream(&self) -> Result<(ReadChannel, WriteChannel), Error> {
         let (send, recv) = self.inner.connection.open_bi().await?;
-        let stream = Stream::new(
-            self.clone(),
-            StreamId::new(self.inner.stream_id_counter.fetch_add(1, Ordering::SeqCst)),
-        );
+        let stream = Stream::new(self.clone(), StreamId::new(send.id().index()));
 
         Ok((
             ReadChannel::new(recv, stream.clone()),
@@ -194,10 +189,7 @@ impl Tunnel {
 
     pub async fn accept_stream(&self) -> Result<(ReadChannel, WriteChannel), Error> {
         let (send, recv) = self.inner.connection.accept_bi().await?;
-        let stream = Stream::new(
-            self.clone(),
-            StreamId::new(self.inner.stream_id_counter.fetch_add(1, Ordering::SeqCst)),
-        );
+        let stream = Stream::new(self.clone(), StreamId::new(send.id().index()));
 
         Ok((
             ReadChannel::new(recv, stream.clone()),
