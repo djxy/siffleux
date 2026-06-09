@@ -11,6 +11,12 @@ use thiserror::Error;
 
 #[derive(Error, Debug)]
 pub enum Error {
+    #[error("First frame received not auth")]
+    FirstFrameReceivedNotAuth,
+
+    #[error("Auth frame not received")]
+    AuthFrameNotReceived,
+
     #[error("Auth key rejected.")]
     AuthKeyRejected,
 
@@ -41,11 +47,11 @@ pub enum Error {
     #[error("Invalid auth_key reason={reason}")]
     InvalidAuthKey { reason: String },
 
-    #[error("Invalid ingress_id={value}, reason={reason}")]
-    InvalidIngressId { value: String, reason: String },
+    #[error("Invalid ingress_id reason={reason}")]
+    InvalidIngressId { reason: String },
 
-    #[error("Invalid tunnel_name={value}, reason={reason}")]
-    InvalidTunnelName { value: String, reason: String },
+    #[error("Invalid tunnel_name reason={reason}")]
+    InvalidTunnelName { reason: String },
 
     #[error("Incompatible version expected={expected}, received={received}")]
     IncompatibleVersion { expected: u8, received: u8 },

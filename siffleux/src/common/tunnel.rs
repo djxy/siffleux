@@ -12,7 +12,6 @@ use tokio_util::sync::CancellationToken;
 use tracing::info;
 
 use crate::codes::CLOSED;
-use crate::protocols::messages::authentication;
 use crate::{AuthKey, Code, Error, IngressId, StreamId, TunnelId, TunnelName};
 
 #[derive(Clone)]

@@ -1,7 +1,7 @@
 use crate::codes::{AUTH_KEY_REJECTED, INGRESS_ID_REJECTED};
 use crate::ingress::Ingress;
-use crate::protocols::messages::authentication;
-use crate::{Error, IngressId, Tunnel, TunnelId};
+use crate::server::protocols::v1::handle_protocol_v1_auth;
+use crate::{Error, IngressId, Tunnel, TunnelId, frames};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
@@ -13,14 +13,14 @@ use tracing::{info, warn};
 
 #[derive(Clone)]
 pub struct Server {
-    inner: Arc<ServerInner>,
+    pub(super) inner: Arc<ServerInner>,
 }
 
 struct ServerInner {
     endpoint: Mutex<Option<Endpoint>>,
-    ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
-    tunnel_id_counter: AtomicU64,
     server_config: ServerConfig,
+    pub(super) ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
+    pub(super) tunnel_id_counter: AtomicU64,
 }
 
 impl Server {
@@ -28,17 +28,16 @@ impl Server {
         certificate_der: CertificateDer<'static>,
         private_key: PrivatePkcs8KeyDer<'static>,
     ) -> Result<Server, Error> {
-        let crypto = rustls::ServerConfig::builder()
+        let mut crypto = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![certificate_der], PrivateKeyDer::from(private_key))?;
 
+        crypto.alpn_protocols = vec![frames::v1::VERSION.to_vec()];
+
         let mut transport_config = TransportConfig::default();
 
-        // Set how often to send keep-alive packets (must be < idle_timeout)
-        transport_config.keep_alive_interval(Some(Duration::from_secs(1)));
-
-        // Set max idle time before the connection is considered dead
-        transport_config.max_idle_timeout(Some(Duration::from_secs(5).try_into().unwrap()));
+        transport_config.keep_alive_interval(Some(Duration::from_secs(5)));
+        transport_config.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
 
         let mut server_config = ServerConfig::with_crypto(Arc::new(
             quinn::crypto::rustls::QuicServerConfig::try_from(crypto)?,
@@ -132,6 +131,14 @@ impl Server {
 
             match connection.accept_bi().await {
                 Ok((mut send, mut recv)) => {
+                    if let Err(e) =
+                        handle_protocol_v1_auth(self_clone.clone(), connection.clone(), send, recv)
+                            .await
+                    {
+                        warn!("Auth failed: {e}");
+
+                        return;
+                    }
                     let handshake = authentication::v1::Request::read(&mut recv).await.unwrap();
 
                     let Some(ingress) = self_clone

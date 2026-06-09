@@ -10,23 +10,30 @@ const TUNNEL_NAME_MAX_LENGTH: usize = 255;
 pub struct TunnelName(String);
 
 impl TunnelName {
-    fn new(value: String) -> Result<Self, Error> {
+    pub fn from_bytes(bytes: &[u8]) -> Result<TunnelName, Error> {
+        let auth_key_str = std::str::from_utf8(bytes).map_err(|_| Error::InvalidTunnelName {
+            reason: "Invalid tunnel name UTF8 bytes.".to_string(),
+        })?;
+
+        Ok(TunnelName::new(auth_key_str)?)
+    }
+
+    fn new(value: &str) -> Result<Self, Error> {
         if value.len() > TUNNEL_NAME_MAX_LENGTH {
             return Err(Error::InvalidIngressId {
-                value,
                 reason: format!("Tunnel name too long. Max length: {TUNNEL_NAME_MAX_LENGTH}"),
             });
         }
 
-        Ok(Self(value))
+        Ok(Self(value.to_string()))
     }
 
-    pub fn value(&self) -> &str {
+    pub fn to_str(&self) -> &str {
         &self.0
     }
 
-    pub fn len(&self) -> u8 {
-        self.0.len() as u8
+    pub fn len(&self) -> usize {
+        self.0.len()
     }
 }
 
@@ -34,7 +41,7 @@ impl TryFrom<&str> for TunnelName {
     type Error = Error;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        Self::new(value.to_string())
+        Self::new(value)
     }
 }
 
@@ -42,7 +49,7 @@ impl TryFrom<String> for TunnelName {
     type Error = Error;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        Self::new(value)
+        Self::new(&value)
     }
 }
 

@@ -12,6 +12,14 @@ const MAX_LENGTH: usize = 255;
 pub struct AuthKey(String);
 
 impl AuthKey {
+    pub fn from_bytes(bytes: &[u8]) -> Result<AuthKey, Error> {
+        let auth_key_str = std::str::from_utf8(bytes).map_err(|_| Error::InvalidAuthKey {
+            reason: "Invalid auth key UTF8 bytes.".to_string(),
+        })?;
+
+        Ok(AuthKey::new(auth_key_str)?)
+    }
+
     pub fn new(value: &str) -> Result<Self, Error> {
         if value.is_empty() {
             return Err(Error::InvalidAuthKey {
