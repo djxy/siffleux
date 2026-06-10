@@ -7,8 +7,9 @@ pub const VERSION: &[u8] = b"siffleux/v1";
 
 const AUTH_TYPE: u8 = 0;
 const AUTHENTICATED_TYPE: u8 = 1;
-const LATENCY_TYPE: u8 = 2;
-const TCP_STREAM_TYPE: u8 = 3;
+const TCP_STREAM_TYPE: u8 = 2;
+const PING_TYPE: u8 = 3;
+const PONG_TYPE: u8 = 4;
 
 pub struct CodecV1;
 
@@ -21,8 +22,9 @@ pub enum FrameV1 {
     Authenticated {
         tunnel_id: TunnelId,
     },
-    Latency,
     TCPStream,
+    Ping,
+    Pong,
 }
 
 impl Encoder<FrameV1> for CodecV1 {
@@ -62,9 +64,13 @@ impl Encoder<FrameV1> for CodecV1 {
                 dst.put_u8(AUTHENTICATED_TYPE);
                 dst.put_slice(&tunnel_id.to_bytes());
             }
-            FrameV1::Latency => {
+            FrameV1::Ping => {
                 dst.reserve(1);
-                dst.put_u8(LATENCY_TYPE);
+                dst.put_u8(PING_TYPE);
+            }
+            FrameV1::Pong => {
+                dst.reserve(1);
+                dst.put_u8(PONG_TYPE);
             }
             FrameV1::TCPStream => {
                 dst.reserve(1);
@@ -124,9 +130,13 @@ impl Decoder for CodecV1 {
 
                 return Ok(Some(FrameV1::Authenticated { tunnel_id }));
             }
-            LATENCY_TYPE => {
+            PING_TYPE => {
                 src.advance(1);
-                return Ok(Some(FrameV1::Latency));
+                return Ok(Some(FrameV1::Ping));
+            }
+            PONG_TYPE => {
+                src.advance(1);
+                return Ok(Some(FrameV1::Pong));
             }
             TCP_STREAM_TYPE => {
                 src.advance(1);

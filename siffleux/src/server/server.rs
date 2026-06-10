@@ -1,15 +1,17 @@
-use crate::codes::{AUTH_KEY_REJECTED, INGRESS_ID_REJECTED};
+use crate::code::SERVER_SIDE_ISSUE;
+use crate::frames::v1::CodecV1;
 use crate::ingress::Ingress;
 use crate::server::protocols::v1::handle_protocol_v1_auth;
-use crate::{Error, IngressId, Tunnel, TunnelId, frames};
+use crate::{Error, IngressId, frames};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
-use tracing::{info, warn};
+use tokio_util::codec::Framed;
+use tracing::{error, info, warn};
 
 #[derive(Clone)]
 pub struct Server {
@@ -130,74 +132,28 @@ impl Server {
             };
 
             match connection.accept_bi().await {
-                Ok((mut send, mut recv)) => {
-                    if let Err(e) =
-                        handle_protocol_v1_auth(self_clone.clone(), connection.clone(), send, recv)
-                            .await
+                Ok((send, recv)) => {
+                    let send_framed = Framed::new(send, CodecV1);
+                    let recv_framed = Framed::new(recv, CodecV1);
+
+                    if let Err(e) = handle_protocol_v1_auth(
+                        self_clone.clone(),
+                        connection.clone(),
+                        send_framed,
+                        recv_framed,
+                    )
+                    .await
                     {
                         warn!("Auth failed: {e}");
 
                         return;
                     }
-                    let handshake = authentication::v1::Request::read(&mut recv).await.unwrap();
-
-                    let Some(ingress) = self_clone
-                        .inner
-                        .ingress_by_id
-                        .read()
-                        .unwrap()
-                        .get(&handshake.ingress_id)
-                        .cloned()
-                    else {
-                        warn!(
-                            "Refused handshake from tunnel_name={}. ingress_id={} doesn't exist.",
-                            handshake.tunnel_name, handshake.ingress_id,
-                        );
-
-                        connection.close(INGRESS_ID_REJECTED.code, INGRESS_ID_REJECTED.reason);
-                        return;
-                    };
-
-                    if !ingress.hashed_auth_key().verify(&handshake.auth_key) {
-                        warn!(
-                            "Refused handshake from tunnel_name={}. Rejected auth_key.",
-                            handshake.tunnel_name
-                        );
-
-                        connection.close(AUTH_KEY_REJECTED.code, AUTH_KEY_REJECTED.reason);
-                        return;
-                    }
-
-                    let tunnel_id = TunnelId::new(
-                        self_clone
-                            .inner
-                            .tunnel_id_counter
-                            .fetch_add(1, Ordering::SeqCst),
-                    );
-
-                    info!(
-                        "Assigned tunnel_id={} to tunnel_name={} on ingress_id={}",
-                        tunnel_id, handshake.tunnel_name, handshake.ingress_id
-                    );
-
-                    authentication::v1::Response::write(&mut send, tunnel_id)
-                        .await
-                        .unwrap();
-
-                    send.finish().unwrap();
-
-                    let tunnel = Tunnel::new(
-                        tunnel_id,
-                        handshake.tunnel_name,
-                        handshake.ingress_id.clone(),
-                        connection,
-                    );
-
-                    let _ = ingress.assign_tunnel(tunnel);
                 }
                 Err(e) => {
-                    connection.close(VarInt::from_u32(1), b"TUNNEL_ID_ERROR");
-                    warn!("Incoming connection didn't received first stream: {e}");
+                    connection.close(SERVER_SIDE_ISSUE.code, SERVER_SIDE_ISSUE.reason);
+
+                    error!("Incoming connection failed to receive the first stream: {e}");
+
                     return;
                 }
             }

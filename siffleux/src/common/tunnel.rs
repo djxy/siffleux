@@ -1,5 +1,5 @@
 use quinn::crypto::rustls::QuicClientConfig;
-use quinn::{ClientConfig, Connection, Endpoint};
+use quinn::{ClientConfig, Connection, Endpoint, RecvStream, SendStream, StreamId};
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::{CryptoProvider, verify_tls12_signature, verify_tls13_signature};
 use rustls::pki_types::CertificateDer;
@@ -7,12 +7,13 @@ use rustls::{DigitallySignedStruct, RootCertStore, SignatureScheme};
 use sha2::{Digest, Sha256};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
-use std::sync::atomic::{AtomicU64, Ordering};
-use tokio_util::sync::CancellationToken;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use tokio_util::codec::{FramedRead, FramedWrite};
+use tokio_util::io::{InspectReader, InspectWriter};
 use tracing::info;
 
-use crate::codes::CLOSED;
-use crate::{AuthKey, Code, Error, IngressId, StreamId, TunnelId, TunnelName};
+use crate::frames::v1::CodecV1;
+use crate::{AuthKey, Error, IngressId, TunnelId, TunnelName};
 
 #[derive(Clone)]
 pub struct Tunnel {
@@ -24,8 +25,8 @@ pub struct TunnelInner {
     id: TunnelId,
     name: TunnelName,
     ingress_id: IngressId,
-    bytes_sent: AtomicU64,
-    bytes_received: AtomicU64,
+    bytes_sent: Arc<AtomicUsize>,
+    bytes_received: Arc<AtomicUsize>,
 }
 
 impl Tunnel {
@@ -137,8 +138,8 @@ impl Tunnel {
                 id,
                 name,
                 ingress_id,
-                bytes_sent: AtomicU64::new(0),
-                bytes_received: AtomicU64::new(0),
+                bytes_sent: Arc::new(AtomicUsize::new(0)),
+                bytes_received: Arc::new(AtomicUsize::new(0)),
             }),
         }
     }
@@ -155,45 +156,91 @@ impl Tunnel {
         &self.inner.ingress_id
     }
 
-    pub fn bytes_sent(&self) -> u64 {
+    pub fn bytes_sent(&self) -> usize {
         self.inner.bytes_sent.load(Ordering::Relaxed)
     }
 
-    pub fn bytes_received(&self) -> u64 {
+    pub fn bytes_received(&self) -> usize {
         self.inner.bytes_received.load(Ordering::Relaxed)
     }
 
-    pub fn is_closed(&self) -> bool {
-        self.inner.connection.close_reason().is_some()
+    pub fn connection(&self) -> &Connection {
+        &self.inner.connection
     }
 
-    /// Wait for the tunnel to close. Even if it returns an Error, it is the reason when the connection closed.
-    pub async fn closed(&self) -> Error {
-        self.inner.connection.closed().await.into()
+    pub async fn create_stream(
+        &self,
+    ) -> Result<
+        (
+            FramedRead<InspectReader<RecvStream, impl FnMut(&[u8])>, CodecV1>,
+            FramedWrite<InspectWriter<SendStream, impl FnMut(&[u8])>, CodecV1>,
+            Stream,
+        ),
+        Error,
+    > {
+        let (send_stream, recv_stream) = self.inner.connection.open_bi().await?;
+
+        self.quinn_stream_to_framed(send_stream, recv_stream)
     }
 
-    pub fn close(&self, code: &Code) {
-        self.inner.connection.close(code.code, code.reason);
+    pub async fn accept_stream(
+        &self,
+    ) -> Result<
+        (
+            FramedRead<InspectReader<RecvStream, impl FnMut(&[u8])>, CodecV1>,
+            FramedWrite<InspectWriter<SendStream, impl FnMut(&[u8])>, CodecV1>,
+            Stream,
+        ),
+        Error,
+    > {
+        let (send_stream, recv_stream) = self.inner.connection.accept_bi().await?;
+
+        self.quinn_stream_to_framed(send_stream, recv_stream)
     }
 
-    pub async fn create_stream(&self) -> Result<(ReadChannel, WriteChannel), Error> {
-        let (send, recv) = self.inner.connection.open_bi().await?;
-        let stream = Stream::new(self.clone(), StreamId::new(send.id().index()));
+    fn quinn_stream_to_framed(
+        &self,
+        send_stream: SendStream,
+        recv_stream: RecvStream,
+    ) -> Result<
+        (
+            FramedRead<InspectReader<RecvStream, impl FnMut(&[u8])>, CodecV1>,
+            FramedWrite<InspectWriter<SendStream, impl FnMut(&[u8])>, CodecV1>,
+            Stream,
+        ),
+        Error,
+    > {
+        let stream_bytes_received = Arc::new(AtomicUsize::new(0));
+        let stream_bytes_sent = Arc::new(AtomicUsize::new(0));
+        let stream = Stream::new(
+            send_stream.id(),
+            stream_bytes_sent.clone(),
+            stream_bytes_received.clone(),
+        );
 
-        Ok((
-            ReadChannel::new(recv, stream.clone()),
-            WriteChannel::new(send, stream),
-        ))
-    }
+        let tunnel_bytes_received = self.inner.bytes_received.clone();
+        let tunnel_bytes_sent = self.inner.bytes_sent.clone();
 
-    pub async fn accept_stream(&self) -> Result<(ReadChannel, WriteChannel), Error> {
-        let (send, recv) = self.inner.connection.accept_bi().await?;
-        let stream = Stream::new(self.clone(), StreamId::new(send.id().index()));
+        let read = FramedRead::new(
+            InspectReader::new(recv_stream, move |bytes| {
+                let bytes_len = bytes.len();
 
-        Ok((
-            ReadChannel::new(recv, stream.clone()),
-            WriteChannel::new(send, stream),
-        ))
+                stream_bytes_received.fetch_add(bytes_len, Ordering::Relaxed);
+                tunnel_bytes_received.fetch_add(bytes_len, Ordering::Relaxed);
+            }),
+            CodecV1,
+        );
+        let send = FramedWrite::new(
+            InspectWriter::new(send_stream, move |bytes| {
+                let bytes_len = bytes.len();
+
+                stream_bytes_sent.fetch_add(bytes_len, Ordering::Relaxed);
+                tunnel_bytes_sent.fetch_add(bytes_len, Ordering::Relaxed);
+            }),
+            CodecV1,
+        );
+
+        Ok((read, send, stream))
     }
 }
 
@@ -204,21 +251,17 @@ pub struct Stream {
 
 struct StreamInner {
     id: StreamId,
-    tunnel: Tunnel,
-    bytes_sent: AtomicU64,
-    bytes_received: AtomicU64,
-    closed_token: CancellationToken,
+    bytes_sent: Arc<AtomicUsize>,
+    bytes_received: Arc<AtomicUsize>,
 }
 
 impl Stream {
-    fn new(tunnel: Tunnel, id: StreamId) -> Self {
+    fn new(id: StreamId, bytes_sent: Arc<AtomicUsize>, bytes_received: Arc<AtomicUsize>) -> Self {
         Stream {
             inner: Arc::new(StreamInner {
                 id,
-                tunnel,
-                bytes_sent: AtomicU64::new(0),
-                bytes_received: AtomicU64::new(0),
-                closed_token: CancellationToken::new(),
+                bytes_sent,
+                bytes_received,
             }),
         }
     }
@@ -227,115 +270,12 @@ impl Stream {
         self.inner.id
     }
 
-    pub fn bytes_sent(&self) -> u64 {
+    pub fn bytes_sent(&self) -> usize {
         self.inner.bytes_sent.load(Ordering::Relaxed)
     }
 
-    pub fn bytes_received(&self) -> u64 {
+    pub fn bytes_received(&self) -> usize {
         self.inner.bytes_received.load(Ordering::Relaxed)
-    }
-
-    fn close(&self) {
-        self.inner.closed_token.cancel();
-    }
-
-    pub fn is_closed(&self) -> bool {
-        self.inner.closed_token.is_cancelled()
-    }
-
-    pub async fn closed(&self) {
-        self.inner.closed_token.cancelled().await;
-    }
-
-    fn increment_bytes_sent(&self, bytes: u64) {
-        self.inner
-            .tunnel
-            .inner
-            .bytes_sent
-            .fetch_add(bytes, Ordering::Relaxed);
-
-        self.inner.bytes_sent.fetch_add(bytes, Ordering::Relaxed);
-    }
-
-    fn increment_bytes_received(&self, bytes: u64) {
-        self.inner
-            .tunnel
-            .inner
-            .bytes_received
-            .fetch_add(bytes, Ordering::Relaxed);
-
-        self.inner
-            .bytes_received
-            .fetch_add(bytes, Ordering::Relaxed);
-    }
-}
-
-pub struct ReadChannel {
-    quinn_stream: quinn::RecvStream,
-    stream: Stream,
-}
-
-impl ReadChannel {
-    pub fn new(quinn_stream: quinn::RecvStream, stream: Stream) -> ReadChannel {
-        ReadChannel {
-            quinn_stream,
-            stream,
-        }
-    }
-
-    pub fn stream(&self) -> &Stream {
-        &self.stream
-    }
-
-    pub async fn read(&mut self, buf: &mut [u8]) -> Result<Option<usize>, Error> {
-        let size_opt = self.quinn_stream.read(buf).await?;
-
-        if let Some(size) = size_opt {
-            self.stream.increment_bytes_received(size as u64);
-        }
-
-        Ok(size_opt)
-    }
-
-    pub fn close(&mut self) -> Result<(), Error> {
-        self.stream.close();
-        Ok(self.quinn_stream.stop(CLOSED.code)?)
-    }
-}
-
-pub struct WriteChannel {
-    quinn_stream: quinn::SendStream,
-    stream: Stream,
-}
-
-impl WriteChannel {
-    pub fn new(quinn_stream: quinn::SendStream, stream: Stream) -> WriteChannel {
-        WriteChannel {
-            quinn_stream,
-            stream,
-        }
-    }
-
-    pub fn stream(&self) -> &Stream {
-        &self.stream
-    }
-
-    /// Write a buffer into this stream, returning how many bytes were written
-    ///
-    /// # Cancel safety
-    ///
-    /// This method is cancellation safe. If this does not resolve, no bytes were written.
-    pub async fn write(&mut self, buf: &mut [u8]) -> Result<usize, Error> {
-        let size = self.quinn_stream.write(buf).await?;
-
-        self.stream.increment_bytes_sent(size as u64);
-
-        Ok(size)
-    }
-
-    pub fn close(&mut self) -> Result<(), Error> {
-        self.stream.close();
-        Ok(self.quinn_stream.finish()?)
     }
 }
 

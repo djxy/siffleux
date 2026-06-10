@@ -11,6 +11,7 @@ use tracing::{error, info};
 
 use crate::common::tunnel::{ReadChannel, WriteChannel};
 use crate::ingress::Ingress;
+use crate::server::protocols::v1::handle_protocol_v1_tcp_stream;
 use crate::{Error, HashedAuthKey, IngressId, Tunnel};
 
 #[derive(Clone)]
@@ -172,6 +173,10 @@ impl TcpIngress {
             return Err(Error::IngressNoTunnelConnected);
         };
 
+        let (read, send, stream) = tunnel.create_stream().await?;
+
+        handle_protocol_v1_tcp_stream(send_stream, recv_stream, tcp_read_stream, tcp_write_stream);
+
         let (read_channel, write_channel) = tunnel.create_stream().await?;
         let tcp_stream_cancellation_token = CancellationToken::new();
 
@@ -190,90 +195,6 @@ impl TcpIngress {
         );
 
         Ok(())
-    }
-
-    fn handle_tcp_to_tunnel(
-        &self,
-        tcp_listener_cancellation_token: CancellationToken,
-        tcp_stream_cancellation_token: CancellationToken,
-        mut tcp_read_stream: OwnedReadHalf,
-        mut write_channel: WriteChannel,
-    ) {
-        let self_clone = self.clone();
-
-        tokio::spawn(async move {
-            let mut buf = [0u8; 1024];
-            let stream = write_channel.stream().clone();
-
-            loop {
-                select! {
-                    read_size_result = tcp_read_stream.read(&mut buf) => {
-                        match read_size_result {
-                            Ok(0) => break,
-                            Ok(size) => {
-                                match write_channel.write(&mut buf[..size]).await {
-                                    Ok(_) => continue,
-                                    Err(_) => break,
-                                }
-                            }
-                            Err(_) => break,
-                        }
-                    },
-                    _ = stream.closed() => break,
-                    _ = tcp_stream_cancellation_token.cancelled() => break,
-                    _ = tcp_listener_cancellation_token.cancelled() => break,
-                }
-            }
-
-            let _ = write_channel.close();
-            tcp_stream_cancellation_token.cancel();
-
-            info!(
-                "Tcp ingress_id={} tcp-to-tunnel connection closed",
-                self_clone.id()
-            );
-        });
-    }
-
-    fn handle_tunnel_to_tcp(
-        &self,
-        tcp_listener_cancellation_token: CancellationToken,
-        tcp_stream_cancellation_token: CancellationToken,
-        mut read_channel: ReadChannel,
-        mut tcp_write_stream: OwnedWriteHalf,
-    ) {
-        let self_clone = self.clone();
-
-        tokio::spawn(async move {
-            let mut buf = [0u8; 1024];
-            let stream = read_channel.stream().clone();
-
-            loop {
-                select! {
-                    read_size_result = read_channel.read(&mut buf) => {
-                        match read_size_result {
-                            Ok(Some(0)) => continue,
-                            Ok(Some(size)) => {
-                                tcp_write_stream.write(&mut buf[..size]).await.unwrap();
-                            }
-                            Ok(None) => break,
-                            Err(_) => break,
-                        }
-                    }
-                    _ = stream.closed() => break,
-                    _ = tcp_stream_cancellation_token.cancelled() => break,
-                    _ = tcp_listener_cancellation_token.cancelled() => break,
-                }
-            }
-
-            let _ = read_channel.close();
-            tcp_stream_cancellation_token.cancel();
-
-            info!(
-                "Tcp ingress_id={} tunnel-to-tcp connection closed",
-                self_clone.id()
-            );
-        });
     }
 
     fn get_tunnel_to_connect(&self) -> Result<Option<Tunnel>, Error> {

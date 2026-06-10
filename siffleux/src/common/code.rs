@@ -34,3 +34,13 @@ pub const SERVER_SIDE_ISSUE: Code = Code {
     code: VarInt::from_u32(5),
     reason: b"server side issue",
 };
+
+pub const COMMAND_STREAM_CLOSED: Code = Code {
+    code: VarInt::from_u32(6),
+    reason: b"command stream closed",
+};
+
+pub const TCP_OR_QUIC_STREAM_FAILED: Code = Code {
+    code: VarInt::from_u32(7),
+    reason: b"tcp or quic stream failed",
+};
