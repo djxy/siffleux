@@ -1,6 +1,6 @@
 use quinn::{Connection, RecvStream, SendStream, StreamId};
 use std::sync::Arc;
-use tokio_util::codec::{Framed, FramedRead, FramedWrite};
+use tokio_util::codec::{FramedRead, FramedWrite};
 use tokio_util::io::{InspectReader, InspectWriter};
 
 use crate::Error;

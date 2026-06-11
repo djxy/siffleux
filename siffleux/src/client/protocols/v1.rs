@@ -2,21 +2,21 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use quinn::{Connection, RecvStream, SendStream};
-use tokio::time::sleep;
+use tokio::{sync::mpsc, time::sleep};
 use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::debug;
+use tracing::{debug, warn};
 
 use crate::{
     Error, Tunnel,
     code::{
-        FRAME_NOT_RECEIVED_ON_TIME, UNEXPECTED_FRAME_RECEIVED, UNKNOWN_ERROR,
-        UNKNOWN_ERROR_CLIENT_REASON,
+        COMMAND_STREAM_CLOSED, FRAME_NOT_RECEIVED_ON_TIME, UNEXPECTED_FRAME_RECEIVED,
+        UNKNOWN_ERROR, UNKNOWN_ERROR_CLIENT_REASON,
     },
     common::{AuthKey, ByteCounter, IngressId, TunnelName},
     frames::v1::{CodecV1, FrameV1},
 };
 
-pub async fn handle_protocol_v1_auth(
+pub async fn handle_client_protocol_v1_auth(
     connection: Connection,
     auth_key: AuthKey,
     ingress_id: IngressId,
@@ -49,13 +49,22 @@ pub async fn handle_protocol_v1_auth(
                         FrameV1::Authenticated { tunnel_id } => {
                             debug!("Received authenticated frame for tunnel_name={tunnel_name}. Assigned tunnel_id={tunnel_id}");
 
-                            return Ok(Tunnel::new(
+                            let tunnel = Tunnel::new(
                                 tunnel_id,
                                 tunnel_name.clone(),
                                 ingress_id.clone(),
-                                connection,
+                                connection.clone(),
                                 Some(client_byte_counter.clone())
-                            ));
+                            );
+
+                            handle_client_protocol_v1_command_stream(
+                                connection,
+                                tunnel.clone(),
+                                tunnel_write_framed,
+                                tunnel_read_framed
+                            );
+
+                            return Ok(tunnel);
                         }
                         _ => {
                             let msg = "First frame received wasn't authenticated.";
@@ -83,4 +92,69 @@ pub async fn handle_protocol_v1_auth(
             return Err(Error::FrameNotReceivedOnTime(msg.to_string()));
         }
     }
+}
+
+pub fn handle_client_protocol_v1_command_stream(
+    connection: Connection,
+    tunnel: Tunnel,
+    mut send_framed: FramedWrite<SendStream, CodecV1>,
+    mut recv_framed: FramedRead<RecvStream, CodecV1>,
+) {
+    let (sender, mut receiver) = mpsc::channel::<FrameV1>(16);
+    let connection_clone = connection.clone();
+    let tunnel_id = tunnel.id();
+
+    tokio::spawn(async move {
+        while let Some(frame) = receiver.recv().await {
+            if let Err(e) = send_framed.send(frame).await {
+                drop(receiver);
+
+                connection_clone.close(UNKNOWN_ERROR, UNKNOWN_ERROR_CLIENT_REASON);
+
+                warn!("Error while sending frame on command stream tunnel_id={tunnel_id}: {e}");
+
+                return;
+            }
+        }
+    });
+
+    let sender_clone = sender.clone();
+
+    tokio::spawn(async move {
+        loop {
+            if let Err(_) = sender_clone.send(FrameV1::Ping).await {
+                return;
+            }
+
+            debug!("Ping tunnel_id={tunnel_id}");
+
+            sleep(Duration::from_secs(5)).await;
+        }
+    });
+
+    tokio::spawn(async move {
+        loop {
+            match recv_framed.next().await {
+                Some(Ok(frame)) => match frame {
+                    FrameV1::Ping => {
+                        let _ = sender.send(FrameV1::Pong).await;
+                    }
+                    FrameV1::Pong => {
+                        debug!("Pong tunnel_id={tunnel_id}");
+                    }
+                    _ => {}
+                },
+                Some(Err(e)) => {
+                    connection.close(UNKNOWN_ERROR, UNKNOWN_ERROR_CLIENT_REASON);
+                    debug!("Command stream error on tunnel_id={tunnel_id}: {e}");
+                    return;
+                }
+                None => {
+                    connection.close(COMMAND_STREAM_CLOSED, b"Command stream closed.");
+                    debug!("Command stream closed on tunnel_id={tunnel_id}");
+                    return;
+                }
+            }
+        }
+    });
 }

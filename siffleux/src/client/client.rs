@@ -9,7 +9,8 @@ use tracing::debug;
 use crate::{
     Error, Tunnel,
     client::{
-        certificate_verifier::CertificateHashVerifier, protocols::v1::handle_protocol_v1_auth,
+        certificate_verifier::CertificateHashVerifier,
+        protocols::v1::handle_client_protocol_v1_auth,
     },
     common::{AuthKey, ByteCounter, IngressId, TunnelName},
 };
@@ -51,7 +52,7 @@ impl Client {
 
         debug!("Connecting to server ingress_id={ingress_id} with certificate(s).");
 
-        handle_protocol_v1_auth(
+        handle_client_protocol_v1_auth(
             Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?
                 .connect_with(
                     ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls_config)?)),

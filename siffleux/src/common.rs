@@ -7,6 +7,7 @@ mod tunnel_name;
 pub mod code;
 pub mod error;
 pub mod frames;
+pub mod protocols;
 pub mod tunnel;
 pub mod utils;
 

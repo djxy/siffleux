@@ -2,7 +2,7 @@ use crate::code::{UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON};
 use crate::common::{ByteCounter, IngressId};
 use crate::frames::v1::CodecV1;
 use crate::ingress::Ingress;
-use crate::server::protocols::v1::handle_protocol_v1_auth;
+use crate::server::protocols::v1::handle_server_protocol_v1_auth;
 use crate::{Error, frames};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -11,7 +11,7 @@ use std::net::SocketAddr;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
-use tokio_util::codec::Framed;
+use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{error, info, warn};
 
 #[derive(Clone)]
@@ -140,10 +140,10 @@ impl Server {
 
             match connection.accept_bi().await {
                 Ok((send, recv)) => {
-                    let send_framed = Framed::new(send, CodecV1);
-                    let recv_framed = Framed::new(recv, CodecV1);
+                    let send_framed = FramedWrite::new(send, CodecV1);
+                    let recv_framed = FramedRead::new(recv, CodecV1);
 
-                    if let Err(e) = handle_protocol_v1_auth(
+                    if let Err(e) = handle_server_protocol_v1_auth(
                         self_clone.clone(),
                         connection.clone(),
                         send_framed,

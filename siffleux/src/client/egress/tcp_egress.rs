@@ -1,7 +1,4 @@
-use std::{
-    net::SocketAddr,
-    sync::{Arc, Mutex},
-};
+use std::{net::SocketAddr, sync::Arc};
 
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -24,7 +21,7 @@ pub struct TcpEgress {
 struct TcpEgressInner {
     tunnel: Tunnel,
     target_addr: SocketAddr,
-    cancellation_token: Mutex<Option<CancellationToken>>,
+    cancellation_token: CancellationToken,
 }
 
 #[async_trait::async_trait]
@@ -68,12 +65,12 @@ impl Egress for TcpEgress {
 }
 
 impl TcpEgress {
-    pub fn new(tunnel: Tunnel, target_addr: SocketAddr) -> Self {
+    fn new(tunnel: Tunnel, target_addr: SocketAddr) -> Self {
         Self {
             inner: Arc::new(TcpEgressInner {
                 tunnel,
                 target_addr,
-                cancellation_token: Mutex::new(None),
+                cancellation_token: CancellationToken::new(),
             }),
         }
     }

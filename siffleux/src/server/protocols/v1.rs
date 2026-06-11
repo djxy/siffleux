@@ -2,29 +2,21 @@ use std::{sync::atomic::Ordering, time::Duration};
 
 use futures_util::{SinkExt, StreamExt};
 use quinn::{Connection, RecvStream, SendStream};
-use tokio::{
-    io::AsyncWriteExt,
-    net::tcp::{OwnedReadHalf, OwnedWriteHalf},
-    sync::mpsc,
-    time::sleep,
-};
+use tokio::{sync::mpsc, time::sleep};
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{debug, warn};
 
 use crate::{
     Error, Server, Tunnel,
     code::{
-        COMMAND_STREAM_CLOSED, DATA_STREAM_ERROR, FRAME_NOT_RECEIVED_ON_TIME, INVALID_VALUE,
+        COMMAND_STREAM_CLOSED, FRAME_NOT_RECEIVED_ON_TIME, INVALID_VALUE,
         UNEXPECTED_FRAME_RECEIVED, UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON,
     },
-    common::{
-        TunnelId,
-        tunnel::{TunnelReadStream, TunnelWriteStream},
-    },
+    common::TunnelId,
     frames::v1::{CodecV1, FrameV1},
 };
 
-pub async fn handle_protocol_v1_auth(
+pub async fn handle_server_protocol_v1_auth(
     server: Server,
     connection: Connection,
     mut send_framed: FramedWrite<SendStream, CodecV1>,
@@ -97,7 +89,7 @@ pub async fn handle_protocol_v1_auth(
 
                             let _ = ingress.assign_tunnel(tunnel.clone());
 
-                            handle_protocol_v1_command_stream(
+                            handle_server_protocol_v1_command_stream(
                                 connection,
                                 tunnel,
                                 send_framed,
@@ -134,7 +126,7 @@ pub async fn handle_protocol_v1_auth(
     }
 }
 
-pub fn handle_protocol_v1_command_stream(
+pub fn handle_server_protocol_v1_command_stream(
     connection: Connection,
     tunnel: Tunnel,
     mut send_framed: FramedWrite<SendStream, CodecV1>,
@@ -162,7 +154,7 @@ pub fn handle_protocol_v1_command_stream(
 
     tokio::spawn(async move {
         loop {
-            if let Err(e) = sender_clone.send(FrameV1::Ping).await {
+            if let Err(_) = sender_clone.send(FrameV1::Ping).await {
                 return;
             }
 
@@ -194,42 +186,6 @@ pub fn handle_protocol_v1_command_stream(
                     debug!("Command stream closed on tunnel_id={tunnel_id}");
                     return;
                 }
-            }
-        }
-    });
-}
-
-pub fn handle_protocol_v1_tcp_stream(
-    mut tunnel_read_stream: TunnelReadStream,
-    mut tunnel_write_stream: TunnelWriteStream,
-    mut tcp_read_stream: OwnedReadHalf,
-    mut tcp_write_stream: OwnedWriteHalf,
-) {
-    tokio::spawn(async move {
-        match tokio::io::copy(&mut tcp_read_stream, &mut tunnel_write_stream).await {
-            Ok(_) => {
-                if let Err(e) = tunnel_write_stream.into_inner().finish() {
-                    warn!("Failed to finish tunnel write stream correctly: {e}");
-                }
-            }
-            Err(e) => {
-                warn!("TCP read stream or tunnel write stream failed with error: {e}");
-
-                let _ = tunnel_write_stream.into_inner().reset(DATA_STREAM_ERROR);
-            }
-        }
-    });
-
-    tokio::spawn(async move {
-        match tokio::io::copy(&mut tunnel_read_stream, &mut tcp_write_stream).await {
-            Ok(_) => {
-                if let Err(e) = tcp_write_stream.shutdown().await {
-                    warn!("Failed to shutdown TCP write stream correctly: {e}");
-                }
-            }
-            Err(e) => {
-                warn!("TCP write stream or tunnel read stream failed with error: {e}");
-                let _ = tunnel_read_stream.into_inner().stop(DATA_STREAM_ERROR);
             }
         }
     });

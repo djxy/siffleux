@@ -7,9 +7,9 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
+use crate::common::protocols::v1::handle_protocol_v1_tcp_stream;
 use crate::common::{HashedAuthKey, IngressId};
 use crate::ingress::Ingress;
-use crate::server::protocols::v1::handle_protocol_v1_tcp_stream;
 use crate::{Error, Tunnel};
 
 #[derive(Clone)]
@@ -173,7 +173,13 @@ impl TcpIngress {
 
         let (read_stream, write_stream, _) = tunnel.create_stream().await?;
 
-        handle_protocol_v1_tcp_stream(read_stream, write_stream, tcp_read_stream, tcp_write_stream);
+        handle_protocol_v1_tcp_stream(
+            read_stream,
+            write_stream,
+            tcp_read_stream,
+            tcp_write_stream,
+            tcp_listener_cancellation_token,
+        );
 
         Ok(())
     }
