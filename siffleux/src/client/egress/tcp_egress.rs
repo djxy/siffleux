@@ -14,7 +14,7 @@ use tokio::{
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-use crate::{Error, ReadChannel, Tunnel, WriteChannel, egress::Egress};
+use crate::{Error, Tunnel, client::egress::Egress};
 
 #[derive(Clone)]
 pub struct TcpEgress {

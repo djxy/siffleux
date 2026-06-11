@@ -1,5 +1,3 @@
-use crate::IngressId;
-use crate::codes::{AUTH_KEY_REJECTED, CLOSED, INGRESS_ID_REJECTED};
 use quinn::crypto::rustls::NoInitialCipherSuite;
 use quinn::{
     ClosedStream, ConnectError, ConnectionError, ReadError, ReadExactError, ReadToEndError,
@@ -9,16 +7,34 @@ use std::string::FromUtf8Error;
 use std::sync::PoisonError;
 use thiserror::Error;
 
+use crate::code::{CONNECTION_EOF, INVALID_VALUE};
+use crate::common::IngressId;
+
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("First frame received not auth")]
-    FirstFrameReceivedNotAuth,
+    #[error("Invalid data: {0}")]
+    InvalidData(String),
 
+    #[error("Unexpected frame received: {0}")]
+    UnexpectedFrameReceived(String),
+
+    #[error("Frame not received on time: {0}")]
+    FrameNotReceivedOnTime(String),
+
+    #[error("Unknown error: {0}")]
+    Unknown(Box<dyn std::error::Error + Send + Sync>),
+
+    // ####################
+    // ####################
+    // ####################
     #[error("Auth frame not received")]
     AuthFrameNotReceived,
 
     #[error("Auth key rejected.")]
     AuthKeyRejected,
+
+    #[error("Connection closed")]
+    ConnectionClosed,
 
     #[error("Closed tunnel")]
     ClosedTunnel,
@@ -56,9 +72,6 @@ pub enum Error {
     #[error("Incompatible version expected={expected}, received={received}")]
     IncompatibleVersion { expected: u8, received: u8 },
 
-    #[error("Invalid data: {0}")]
-    InvalidData(Box<dyn std::error::Error + Send + Sync>),
-
     #[error("Server is already listening")]
     ServerAlreadyListening,
 
@@ -76,9 +89,6 @@ pub enum Error {
 
     #[error("Lock poisoned: {0}")]
     PoisonLock(String),
-
-    #[error("Unknown error: {0}")]
-    Unknown(Box<dyn std::error::Error + Send + Sync>),
 }
 
 impl From<ReadExactError> for Error {
@@ -153,9 +163,10 @@ impl From<ConnectionError> for Error {
     fn from(connection_error: ConnectionError) -> Self {
         match connection_error {
             ConnectionError::ApplicationClosed(ac) => match ac.error_code {
-                c if c == CLOSED.code => Error::ClosedTunnel,
-                c if c == AUTH_KEY_REJECTED.code => Error::AuthKeyRejected,
-                c if c == INGRESS_ID_REJECTED.code => Error::IngressIdRejected,
+                c if c == CONNECTION_EOF => Error::ClosedTunnel,
+                c if c == INVALID_VALUE => {
+                    Error::InvalidData(String::from_utf8(ac.reason.to_vec()).unwrap())
+                }
                 _ => Error::Unknown(ConnectionError::ApplicationClosed(ac).into()),
             },
             ConnectionError::TransportError(te) => match u64::from(te.code) {
@@ -169,7 +180,7 @@ impl From<ConnectionError> for Error {
 
 impl From<FromUtf8Error> for Error {
     fn from(value: FromUtf8Error) -> Self {
-        Error::InvalidData(value.into())
+        Error::InvalidData(value.to_string())
     }
 }
 

@@ -2,17 +2,15 @@ use async_trait::async_trait;
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
-use tokio::select;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-use crate::common::tunnel::{ReadChannel, WriteChannel};
+use crate::common::{HashedAuthKey, IngressId};
 use crate::ingress::Ingress;
 use crate::server::protocols::v1::handle_protocol_v1_tcp_stream;
-use crate::{Error, HashedAuthKey, IngressId, Tunnel};
+use crate::{Error, Tunnel};
 
 #[derive(Clone)]
 pub struct TcpIngress {
@@ -44,7 +42,7 @@ impl Ingress for TcpIngress {
         let self_clone = self.clone();
 
         tokio::spawn(async move {
-            tunnel_clone.closed().await;
+            tunnel_clone.connection().closed().await;
 
             let mut tunnels = self_clone.inner.tunnels.write().unwrap();
 
@@ -173,26 +171,9 @@ impl TcpIngress {
             return Err(Error::IngressNoTunnelConnected);
         };
 
-        let (read, send, stream) = tunnel.create_stream().await?;
+        let (read_stream, write_stream, _) = tunnel.create_stream().await?;
 
-        handle_protocol_v1_tcp_stream(send_stream, recv_stream, tcp_read_stream, tcp_write_stream);
-
-        let (read_channel, write_channel) = tunnel.create_stream().await?;
-        let tcp_stream_cancellation_token = CancellationToken::new();
-
-        self.handle_tcp_to_tunnel(
-            tcp_listener_cancellation_token.clone(),
-            tcp_stream_cancellation_token.clone(),
-            tcp_read_stream,
-            write_channel,
-        );
-
-        self.handle_tunnel_to_tcp(
-            tcp_listener_cancellation_token,
-            tcp_stream_cancellation_token,
-            read_channel,
-            tcp_write_stream,
-        );
+        handle_protocol_v1_tcp_stream(read_stream, write_stream, tcp_read_stream, tcp_write_stream);
 
         Ok(())
     }

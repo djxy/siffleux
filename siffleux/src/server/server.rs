@@ -1,8 +1,9 @@
-use crate::code::SERVER_SIDE_ISSUE;
+use crate::code::{UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON};
+use crate::common::{ByteCounter, IngressId};
 use crate::frames::v1::CodecV1;
 use crate::ingress::Ingress;
 use crate::server::protocols::v1::handle_protocol_v1_auth;
-use crate::{Error, IngressId, frames};
+use crate::{Error, frames};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
@@ -23,6 +24,7 @@ struct ServerInner {
     server_config: ServerConfig,
     pub(super) ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
     pub(super) tunnel_id_counter: AtomicU64,
+    byte_counter: ByteCounter,
 }
 
 impl Server {
@@ -57,6 +59,7 @@ impl Server {
                 ingress_by_id: RwLock::new(HashMap::new()),
                 tunnel_id_counter: AtomicU64::new(0),
                 server_config,
+                byte_counter: ByteCounter::new(None),
             }),
         }
     }
@@ -71,6 +74,10 @@ impl Server {
         ingress_by_id.insert(ingress.id().clone(), ingress);
 
         Ok(())
+    }
+
+    pub fn byte_counter(&self) -> &ByteCounter {
+        &self.inner.byte_counter
     }
 
     pub fn address(&self) -> Result<SocketAddr, Error> {
@@ -150,7 +157,7 @@ impl Server {
                     }
                 }
                 Err(e) => {
-                    connection.close(SERVER_SIDE_ISSUE.code, SERVER_SIDE_ISSUE.reason);
+                    connection.close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);
 
                     error!("Incoming connection failed to receive the first stream: {e}");
 

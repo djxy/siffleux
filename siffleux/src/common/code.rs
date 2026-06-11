@@ -1,46 +1,25 @@
 use quinn::VarInt;
 
-pub struct Code {
-    pub code: VarInt,
-    pub reason: &'static [u8],
-}
+// ###################
+// Connection codes [1000-1999]
+// ###################
+pub const CONNECTION_EOF: VarInt = VarInt::from_u32(0);
+pub const COMMAND_STREAM_CLOSED: VarInt = VarInt::from_u32(1);
 
-pub const CLOSED: Code = Code {
-    code: VarInt::from_u32(0),
-    reason: b"done",
-};
+// ###################
+// Stream codes [2000-2999]
+// ###################
+pub const STREAM_EOF: VarInt = VarInt::from_u32(2000);
 
-pub const AUTH_KEY_REJECTED: Code = Code {
-    code: VarInt::from_u32(1),
-    reason: b"auth key rejected",
-};
+pub const DATA_STREAM_ERROR: VarInt = VarInt::from_u32(2001);
 
-pub const INGRESS_ID_REJECTED: Code = Code {
-    code: VarInt::from_u32(2),
-    reason: b"ingress id rejected",
-};
+// ###################
+// Common codes [3000-3999]
+// ###################
+pub const INVALID_VALUE: VarInt = VarInt::from_u32(3000);
+pub const UNEXPECTED_FRAME_RECEIVED: VarInt = VarInt::from_u32(3001);
+pub const FRAME_NOT_RECEIVED_ON_TIME: VarInt = VarInt::from_u32(3002);
 
-pub const FIRST_FRAME_RECEIVED_NOT_AUTH: Code = Code {
-    code: VarInt::from_u32(3),
-    reason: b"first frame received not auth",
-};
-
-pub const AUTH_FRAME_NOT_RECEIVED: Code = Code {
-    code: VarInt::from_u32(4),
-    reason: b"auth frame not received",
-};
-
-pub const SERVER_SIDE_ISSUE: Code = Code {
-    code: VarInt::from_u32(5),
-    reason: b"server side issue",
-};
-
-pub const COMMAND_STREAM_CLOSED: Code = Code {
-    code: VarInt::from_u32(6),
-    reason: b"command stream closed",
-};
-
-pub const TCP_OR_QUIC_STREAM_FAILED: Code = Code {
-    code: VarInt::from_u32(7),
-    reason: b"tcp or quic stream failed",
-};
+pub const UNKNOWN_ERROR: VarInt = VarInt::from_u32(3999);
+pub const UNKNOWN_ERROR_SERVER_REASON: &[u8] = b"Unknown server side issue.";
+pub const UNKNOWN_ERROR_CLIENT_REASON: &[u8] = b"Unknown client side issue.";

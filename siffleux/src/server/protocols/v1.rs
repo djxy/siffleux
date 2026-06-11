@@ -8,15 +8,18 @@ use tokio::{
     sync::mpsc,
     time::sleep,
 };
-use tokio_util::codec::Framed;
+use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{debug, warn};
 
 use crate::{
-    Error, Server, Tunnel, TunnelId,
+    Error, Server, Tunnel,
     code::{
-        AUTH_FRAME_NOT_RECEIVED, AUTH_KEY_REJECTED, COMMAND_STREAM_CLOSED,
-        FIRST_FRAME_RECEIVED_NOT_AUTH, INGRESS_ID_REJECTED, SERVER_SIDE_ISSUE,
-        TCP_OR_QUIC_STREAM_FAILED,
+        COMMAND_STREAM_CLOSED, DATA_STREAM_ERROR, FRAME_NOT_RECEIVED_ON_TIME, INVALID_VALUE,
+        UNEXPECTED_FRAME_RECEIVED, UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON,
+    },
+    common::{
+        TunnelId,
+        tunnel::{TunnelReadStream, TunnelWriteStream},
     },
     frames::v1::{CodecV1, FrameV1},
 };
@@ -24,8 +27,8 @@ use crate::{
 pub async fn handle_protocol_v1_auth(
     server: Server,
     connection: Connection,
-    mut send_framed: Framed<SendStream, CodecV1>,
-    mut recv_framed: Framed<RecvStream, CodecV1>,
+    mut send_framed: FramedWrite<SendStream, CodecV1>,
+    mut recv_framed: FramedRead<RecvStream, CodecV1>,
 ) -> Result<(), Error> {
     tokio::select! {
         frame_option = recv_framed.next() => {
@@ -46,9 +49,11 @@ pub async fn handle_protocol_v1_auth(
                                     tunnel_name,
                                 );
 
-                                connection.close(INGRESS_ID_REJECTED.code, INGRESS_ID_REJECTED.reason);
+                                let msg = "Rejected ingress_id";
 
-                                return Err(Error::IngressIdRejected);
+                                connection.close(INVALID_VALUE, msg.as_bytes());
+
+                                return Err(Error::InvalidData(msg.to_string()));
                             };
 
                             if !ingress.hashed_auth_key().verify(&auth_key) {
@@ -57,9 +62,11 @@ pub async fn handle_protocol_v1_auth(
                                     tunnel_name
                                 );
 
-                                connection.close(AUTH_KEY_REJECTED.code, AUTH_KEY_REJECTED.reason);
+                                let msg = "Rejected auth_key";
 
-                                return Err(Error::AuthKeyRejected);
+                                connection.close(INVALID_VALUE, msg.as_bytes());
+
+                                return Err(Error::InvalidData(msg.to_string()));
                             }
 
                             let tunnel_id = TunnelId::new(
@@ -85,6 +92,7 @@ pub async fn handle_protocol_v1_auth(
                                 tunnel_name,
                                 ingress_id.clone(),
                                 connection.clone(),
+                                Some(server.byte_counter().clone())
                             );
 
                             let _ = ingress.assign_tunnel(tunnel.clone());
@@ -95,50 +103,55 @@ pub async fn handle_protocol_v1_auth(
                                 send_framed,
                                 recv_framed
                             );
+
+                            return Ok(());
                         }
                         _ => {
-                            connection.close(FIRST_FRAME_RECEIVED_NOT_AUTH.code, FIRST_FRAME_RECEIVED_NOT_AUTH.reason);
+                            let msg = "Expected first frame to be auth.";
 
-                            return Err(Error::FirstFrameReceivedNotAuth);
+                            connection.close(UNEXPECTED_FRAME_RECEIVED, msg.as_bytes());
+
+                            return Err(Error::UnexpectedFrameReceived(msg.to_string()));
                         }
                     }
                     Err(e) => {
-                        connection.close(SERVER_SIDE_ISSUE.code, SERVER_SIDE_ISSUE.reason);
+                        connection.close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);
 
-                        return Err(e);
+                        return Err(Error::Unknown(e.into()));
                     }
                 }
             } else {
-                return Ok(());
+                return Err(Error::ConnectionClosed);
             }
         },
         _ = sleep(Duration::from_secs(5)) => {
-            connection.close(AUTH_FRAME_NOT_RECEIVED.code, AUTH_FRAME_NOT_RECEIVED.reason);
+            let msg = "Auth frame not received on time.";
 
-            return Err(Error::AuthFrameNotReceived);
+            connection.close(FRAME_NOT_RECEIVED_ON_TIME, msg.as_bytes());
+
+            return Err(Error::FrameNotReceivedOnTime(msg.to_string()));
         }
     }
-
-    Ok(())
 }
 
 pub fn handle_protocol_v1_command_stream(
     connection: Connection,
     tunnel: Tunnel,
-    mut send_framed: Framed<SendStream, CodecV1>,
-    mut recv_framed: Framed<RecvStream, CodecV1>,
+    mut send_framed: FramedWrite<SendStream, CodecV1>,
+    mut recv_framed: FramedRead<RecvStream, CodecV1>,
 ) {
     let (sender, mut receiver) = mpsc::channel::<FrameV1>(16);
     let connection_clone = connection.clone();
+    let tunnel_id = tunnel.id();
 
     tokio::spawn(async move {
         while let Some(frame) = receiver.recv().await {
             if let Err(e) = send_framed.send(frame).await {
                 drop(receiver);
 
-                connection_clone.close(SERVER_SIDE_ISSUE.code, SERVER_SIDE_ISSUE.reason);
+                connection_clone.close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);
 
-                warn!("Error while sending ping {e}");
+                warn!("Error while sending frame on command stream tunnel_id={tunnel_id}: {e}");
 
                 return;
             }
@@ -146,7 +159,6 @@ pub fn handle_protocol_v1_command_stream(
     });
 
     let sender_clone = sender.clone();
-    let tunnel_id = tunnel.id().clone();
 
     tokio::spawn(async move {
         loop {
@@ -154,7 +166,7 @@ pub fn handle_protocol_v1_command_stream(
                 return;
             }
 
-            debug!("Sent ping to tunnel_id={}", tunnel_id);
+            debug!("Ping tunnel_id={tunnel_id}");
 
             sleep(Duration::from_secs(5)).await;
         }
@@ -168,18 +180,18 @@ pub fn handle_protocol_v1_command_stream(
                         let _ = sender.send(FrameV1::Pong).await;
                     }
                     FrameV1::Pong => {
-                        debug!("Received pong from tunnel_id={}", tunnel_id);
+                        debug!("Pong tunnel_id={tunnel_id}");
                     }
                     _ => {}
                 },
                 Some(Err(e)) => {
-                    connection.close(SERVER_SIDE_ISSUE.code, SERVER_SIDE_ISSUE.reason);
-                    debug!("Command stream error for tunnel_id={}: {e}", tunnel.id());
+                    connection.close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);
+                    debug!("Command stream error on tunnel_id={tunnel_id}: {e}");
                     return;
                 }
                 None => {
-                    connection.close(COMMAND_STREAM_CLOSED.code, COMMAND_STREAM_CLOSED.reason);
-                    debug!("Command stream closed for tunnel_id={}", tunnel.id());
+                    connection.close(COMMAND_STREAM_CLOSED, b"Command stream closed.");
+                    debug!("Command stream closed on tunnel_id={tunnel_id}");
                     return;
                 }
             }
@@ -188,36 +200,36 @@ pub fn handle_protocol_v1_command_stream(
 }
 
 pub fn handle_protocol_v1_tcp_stream(
-    mut send_stream: SendStream,
-    mut recv_stream: RecvStream,
+    mut tunnel_read_stream: TunnelReadStream,
+    mut tunnel_write_stream: TunnelWriteStream,
     mut tcp_read_stream: OwnedReadHalf,
     mut tcp_write_stream: OwnedWriteHalf,
 ) {
     tokio::spawn(async move {
-        match tokio::io::copy(&mut tcp_read_stream, &mut send_stream).await {
+        match tokio::io::copy(&mut tcp_read_stream, &mut tunnel_write_stream).await {
             Ok(_) => {
-                if let Err(e) = send_stream.finish() {
-                    warn!("Failed to finish QUIC send stream correctly: {e}");
+                if let Err(e) = tunnel_write_stream.into_inner().finish() {
+                    warn!("Failed to finish tunnel write stream correctly: {e}");
                 }
             }
             Err(e) => {
-                warn!("TCP read or QUIC send failed with error: {e}");
+                warn!("TCP read stream or tunnel write stream failed with error: {e}");
 
-                let _ = send_stream.reset(TCP_OR_QUIC_STREAM_FAILED.code);
+                let _ = tunnel_write_stream.into_inner().reset(DATA_STREAM_ERROR);
             }
         }
     });
 
     tokio::spawn(async move {
-        match tokio::io::copy(&mut recv_stream, &mut tcp_write_stream).await {
+        match tokio::io::copy(&mut tunnel_read_stream, &mut tcp_write_stream).await {
             Ok(_) => {
                 if let Err(e) = tcp_write_stream.shutdown().await {
-                    warn!("Failed to finish TCP write correctly: {e}");
+                    warn!("Failed to shutdown TCP write stream correctly: {e}");
                 }
             }
             Err(e) => {
-                warn!("TCP read or QUIC write failed with error: {e}");
-                let _ = recv_stream.stop(TCP_OR_QUIC_STREAM_FAILED.code);
+                warn!("TCP write stream or tunnel read stream failed with error: {e}");
+                let _ = tunnel_read_stream.into_inner().stop(DATA_STREAM_ERROR);
             }
         }
     });
