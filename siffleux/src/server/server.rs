@@ -16,14 +16,14 @@ use tracing::{error, info, warn};
 
 #[derive(Clone)]
 pub struct Server {
-    pub(super) inner: Arc<ServerInner>,
+    pub(in crate::server) inner: Arc<ServerInner>,
 }
 
-struct ServerInner {
+pub(in crate::server) struct ServerInner {
     endpoint: Mutex<Option<Endpoint>>,
     server_config: ServerConfig,
-    pub(super) ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
-    pub(super) tunnel_id_counter: AtomicU64,
+    pub ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
+    pub tunnel_id_counter: AtomicU64,
     byte_counter: ByteCounter,
 }
 
