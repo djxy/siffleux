@@ -244,8 +244,8 @@ async fn test_origin_tcp_write_dropped() {
         let tcp_echo_addr = tcp_echo.local_addr().unwrap();
 
         tokio::spawn(async move {
-            while let Ok((tcp_stream, _)) = tcp_echo.accept().await {
-                drop(tcp_stream);
+            while let Ok((mut tcp_stream, _)) = tcp_echo.accept().await {
+                let _ = tcp_stream.read_f32().await;
             }
         });
 
@@ -254,14 +254,14 @@ async fn test_origin_tcp_write_dropped() {
         let _ = tcp_egress.start().await;
     });
 
-    let (mut tcp_read_stream, tcp_write_stream) = TcpStream::connect(tcp_ingress_socket_addr)
-        .await
-        .unwrap()
-        .into_split();
+    let tcp_stream = TcpStream::connect(tcp_ingress_socket_addr).await.unwrap();
+
+    let tcp_socket_addr = tcp_stream.local_addr().unwrap();
+    let (mut tcp_read_stream, tcp_write_stream) = tcp_stream.into_split();
 
     drop(tcp_write_stream);
 
-    info!("Dropped tcp write stream");
+    info!("Dropped tcp {tcp_socket_addr} write stream");
 
     let result = tcp_read_stream.read(&mut [0u8; 0]).await;
 

@@ -2,7 +2,7 @@ use std::{net::SocketAddr, sync::Arc};
 
 use tokio::net::TcpStream;
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info, warn};
+use tracing::{debug, error, warn};
 
 use crate::{
     Egress, Error, Tunnel, TunnelReadStream, TunnelWriteStream,
@@ -29,8 +29,8 @@ impl Egress for TcpEgress {
             while let Ok((tunnel_read_stream, tunnel_write_stream, _)) =
                 self_clone.inner.tunnel.accept_stream().await
             {
-                info!(
-                    "Received tcp connection from tunnel_id={} ingress_id={} on tcp_egress={}",
+                debug!(
+                    "Received tunnel stream from tunnel_id={} ingress_id={} on tcp_egress={}",
                     self_clone.inner.tunnel.id(),
                     self_clone.inner.tunnel.ingress_id(),
                     self_clone.inner.target_addr
