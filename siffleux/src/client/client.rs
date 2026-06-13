@@ -13,6 +13,7 @@ use crate::{
         protocols::v1::handle_client_protocol_v1_auth,
     },
     common::{AuthKey, ByteCounter, IngressId, TunnelName},
+    frames,
 };
 
 #[derive(Debug, Clone)]
@@ -43,12 +44,14 @@ impl Client {
         server_name: String,
         certificate_hash: Vec<u8>,
     ) -> Result<Tunnel, Error> {
-        let verifier = Arc::new(CertificateHashVerifier::new(certificate_hash));
-
-        let tls_config = rustls::ClientConfig::builder()
+        let mut tls_config = rustls::ClientConfig::builder()
             .dangerous()
-            .with_custom_certificate_verifier(verifier)
+            .with_custom_certificate_verifier(Arc::new(CertificateHashVerifier::new(
+                certificate_hash,
+            )))
             .with_no_client_auth();
+
+        tls_config.alpn_protocols = vec![frames::v1::VERSION.to_vec()];
 
         debug!("Connecting to server ingress_id={ingress_id} with certificate(s).");
 

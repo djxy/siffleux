@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use tokio::{
     io::AsyncWriteExt,
     net::tcp::{OwnedReadHalf, OwnedWriteHalf},
@@ -14,6 +16,7 @@ use crate::{
 pub fn handle_protocol_v1_tcp_stream(
     mut tunnel_read_stream: TunnelReadStream,
     mut tunnel_write_stream: TunnelWriteStream,
+    tcp_socket_addr: SocketAddr,
     mut tcp_read_stream: OwnedReadHalf,
     mut tcp_write_stream: OwnedWriteHalf,
     cancellation_token: CancellationToken,
@@ -24,16 +27,20 @@ pub fn handle_protocol_v1_tcp_stream(
     tokio::spawn(async move {
         tokio::join!(
             async move {
+                debug!("Streaming TCP read {tcp_socket_addr} -> tunnel write stream");
+
                 tokio::select! {
                     copy_result = tokio::io::copy(&mut tcp_read_stream, &mut tunnel_write_stream) => {
                         match copy_result {
                             Ok(_) => {
                                 if let Err(e) = tunnel_write_stream.into_inner().finish() {
-                                    debug!("Failed to finish tunnel write stream: {e}");
+                                    debug!("TCP read {tcp_socket_addr} closed and failed to finish tunnel write stream: {e}");
+                                } else {
+                                    debug!("TCP read {tcp_socket_addr} and tunnel write stream closed.");
                                 }
                             }
                             Err(e) => {
-                                warn!("TCP read stream or tunnel write stream failed with error: {e}");
+                                warn!("TCP read {tcp_socket_addr} or tunnel write stream failed with error: {e}");
 
                                 let _ = tunnel_write_stream.into_inner().reset(DATA_STREAM_ERROR);
 
@@ -43,20 +50,28 @@ pub fn handle_protocol_v1_tcp_stream(
                     }
                     _ = stream_cancellation_token_clone.cancelled() => {
                         let _ = tunnel_write_stream.into_inner().reset(DATA_STREAM_ERROR);
+
+                        debug!("TCP read {tcp_socket_addr} -> tunnel write stream cancelled.");
                     }
                 }
+
+                debug!("TCP read {tcp_socket_addr} -> tunnel write stream closed.");
             },
             async move {
+                debug!("Streaming tunnel read stream -> TCP write {tcp_socket_addr}");
+
                 tokio::select! {
                     copy_result = tokio::io::copy(&mut tunnel_read_stream, &mut tcp_write_stream) => {
                         match copy_result {
                             Ok(_) => {
                                 if let Err(e) = tcp_write_stream.shutdown().await {
-                                    debug!("Failed to finish tcp write stream: {e}");
+                                    debug!("Tunnel read stream closed and failed to shutdown TCP write {tcp_socket_addr}: {e}");
+                                } else {
+                                    debug!("Tunnel read stream and TCP write {tcp_socket_addr} closed.");
                                 }
                             }
                             Err(e) => {
-                                warn!("TCP write stream or tunnel read stream failed with error: {e}");
+                                debug!("TCP write {tcp_socket_addr} or tunnel read stream failed with error: {e}");
 
                                 let _ = tcp_write_stream.shutdown().await;
                                 let _ = tunnel_read_stream.into_inner().stop(DATA_STREAM_ERROR);
@@ -68,9 +83,15 @@ pub fn handle_protocol_v1_tcp_stream(
                     _ = stream_cancellation_token.cancelled() => {
                         let _ = tcp_write_stream.shutdown().await;
                         let _ = tunnel_read_stream.into_inner().stop(DATA_STREAM_ERROR);
+
+                        debug!("Tunnel read stream -> tcp write {tcp_socket_addr} cancelled.");
                     }
                 }
+
+                debug!("Tunnel read stream -> tcp write {tcp_socket_addr} closed.");
             }
         );
+
+        debug!("TCP {tcp_socket_addr} and tunnel stream closed");
     })
 }

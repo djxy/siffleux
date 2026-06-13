@@ -4,6 +4,7 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 use tokio_util::io::{InspectReader, InspectWriter};
 
 use crate::Error;
+use crate::code::CONNECTION_EOF;
 use crate::common::byte_counter::ByteCounter;
 use crate::common::{IngressId, TunnelId, TunnelName};
 use crate::frames::v1::CodecV1;
@@ -59,6 +60,10 @@ impl Tunnel {
 
     pub fn connection(&self) -> &Connection {
         &self.inner.connection
+    }
+
+    pub fn close(&self) {
+        self.inner.connection.close(CONNECTION_EOF, b"done");
     }
 
     pub async fn create_stream(

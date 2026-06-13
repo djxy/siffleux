@@ -7,12 +7,11 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{debug, warn};
 
 use crate::{
-    Error, Tunnel,
+    AuthKey, ByteCounter, Error, IngressId, Tunnel, TunnelName,
     code::{
         COMMAND_STREAM_CLOSED, FRAME_NOT_RECEIVED_ON_TIME, UNEXPECTED_FRAME_RECEIVED,
         UNKNOWN_ERROR, UNKNOWN_ERROR_CLIENT_REASON,
     },
-    common::{AuthKey, ByteCounter, IngressId, TunnelName},
     frames::v1::{CodecV1, FrameV1},
 };
 

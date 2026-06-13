@@ -5,18 +5,14 @@ use std::{
 
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use siffleux::{
-    AuthKey, IngressId, Server, Tunnel, TunnelName,
-    codes::CLOSED,
-    egress::Egress,
-    generate_self_signed_certificate,
-    ingress::{Ingress, IngressClone},
-    tcp_egress::TcpEgress,
-    tcp_ingress::TcpIngress,
+    AuthKey, Client, Egress, Ingress, IngressClone, IngressId, Server, TcpEgress, TcpIngress,
+    TunnelName, code::CONNECTION_EOF, generate_self_signed_certificate,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream},
 };
+use tracing::{Level, info};
 
 static SERVER_NAME: &'static str = "localhost";
 
@@ -32,7 +28,10 @@ fn init() -> &'static (
     Vec<u8>,
 ) {
     INIT.get_or_init(|| {
-        let _ = tracing_subscriber::fmt().with_test_writer().try_init();
+        let _ = tracing_subscriber::fmt()
+            .with_test_writer()
+            .with_max_level(Level::DEBUG)
+            .try_init();
 
         rustls::crypto::ring::default_provider()
             .install_default()
@@ -44,7 +43,7 @@ fn init() -> &'static (
 
 #[tokio::test]
 async fn test_send_and_receive_data() {
-    let (cert_der, key, _cert_hash) = init();
+    let (cert_der, key, cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("111").unwrap();
 
@@ -69,16 +68,19 @@ async fn test_send_and_receive_data() {
 
     server.assign_ingress(tcp_ingress.clone_box()).unwrap();
 
-    let tunnel = Tunnel::connect_to_server_with_certificates(
-        auth_key.clone(),
-        ingress_id.clone(),
-        TunnelName::try_from("aaa").unwrap(),
-        server.address().unwrap(),
-        SERVER_NAME.to_string(),
-        vec![cert_der.clone()],
-    )
-    .await
-    .unwrap();
+    let client = Client::new();
+
+    let tunnel = client
+        .connect_tunnel_with_certificate_hash(
+            auth_key.clone(),
+            ingress_id.clone(),
+            TunnelName::try_from("aaa").unwrap(),
+            server.address().unwrap(),
+            SERVER_NAME.to_string(),
+            cert_hash.clone(),
+        )
+        .await
+        .unwrap();
 
     let tunnel_clone = tunnel.clone();
 
@@ -123,7 +125,7 @@ async fn test_send_and_receive_data() {
 
 #[tokio::test]
 async fn test_target_tcp_write_dropped() {
-    let (cert_der, key, _cert_hash) = init();
+    let (cert_der, key, cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
@@ -148,16 +150,19 @@ async fn test_target_tcp_write_dropped() {
 
     server.assign_ingress(tcp_ingress.clone_box()).unwrap();
 
-    let tunnel = Tunnel::connect_to_server_with_certificates(
-        auth_key.clone(),
-        ingress_id.clone(),
-        TunnelName::try_from("").unwrap(),
-        server.address().unwrap(),
-        SERVER_NAME.to_string(),
-        vec![cert_der.clone()],
-    )
-    .await
-    .unwrap();
+    let client = Client::new();
+
+    let tunnel = client
+        .connect_tunnel_with_certificate_hash(
+            auth_key.clone(),
+            ingress_id.clone(),
+            TunnelName::try_from("aaa").unwrap(),
+            server.address().unwrap(),
+            SERVER_NAME.to_string(),
+            cert_hash.clone(),
+        )
+        .await
+        .unwrap();
 
     let tunnel_clone = tunnel.clone();
 
@@ -191,7 +196,7 @@ async fn test_target_tcp_write_dropped() {
 
 #[tokio::test]
 async fn test_origin_tcp_write_dropped() {
-    let (cert_der, key, _cert_hash) = init();
+    let (cert_der, key, cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
@@ -216,16 +221,38 @@ async fn test_origin_tcp_write_dropped() {
 
     server.assign_ingress(tcp_ingress.clone_box()).unwrap();
 
-    let tunnel = Tunnel::connect_to_server_with_certificates(
-        auth_key.clone(),
-        ingress_id.clone(),
-        TunnelName::try_from("").unwrap(),
-        server.address().unwrap(),
-        SERVER_NAME.to_string(),
-        vec![cert_der.clone()],
-    )
-    .await
-    .unwrap();
+    let client = Client::new();
+
+    let tunnel = client
+        .connect_tunnel_with_certificate_hash(
+            auth_key.clone(),
+            ingress_id.clone(),
+            TunnelName::try_from("aaa").unwrap(),
+            server.address().unwrap(),
+            SERVER_NAME.to_string(),
+            cert_hash.clone(),
+        )
+        .await
+        .unwrap();
+
+    let tunnel_clone = tunnel.clone();
+
+    tokio::spawn(async move {
+        let tcp_echo = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+            .await
+            .unwrap();
+        let tcp_echo_addr = tcp_echo.local_addr().unwrap();
+
+        tokio::spawn(async move {
+            while let Ok((tcp_stream, _)) = tcp_echo.accept().await {
+                drop(tcp_stream);
+            }
+        });
+
+        let tcp_egress = TcpEgress::new(tunnel_clone, tcp_echo_addr);
+
+        let _ = tcp_egress.start().await;
+    });
 
     let (mut tcp_read_stream, tcp_write_stream) = TcpStream::connect(tcp_ingress_socket_addr)
         .await
@@ -234,11 +261,13 @@ async fn test_origin_tcp_write_dropped() {
 
     drop(tcp_write_stream);
 
+    info!("Dropped tcp write stream");
+
     let result = tcp_read_stream.read(&mut [0u8; 0]).await;
 
     assert_eq!(false, result.is_err());
     assert_eq!(Some(0), result.ok());
 
-    tunnel.close(&CLOSED);
+    tunnel.close();
     server.stop().await.unwrap();
 }

@@ -1,7 +1,7 @@
+use crate::Ingress;
 use crate::code::{UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON};
 use crate::common::{ByteCounter, IngressId};
 use crate::frames::v1::CodecV1;
-use crate::ingress::Ingress;
 use crate::server::protocols::v1::handle_server_protocol_v1_auth;
 use crate::{Error, frames};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
@@ -32,11 +32,11 @@ impl Server {
         certificate_der: CertificateDer<'static>,
         private_key: PrivatePkcs8KeyDer<'static>,
     ) -> Result<Server, Error> {
-        let mut crypto = rustls::ServerConfig::builder()
+        let mut tls_config = rustls::ServerConfig::builder()
             .with_no_client_auth()
             .with_single_cert(vec![certificate_der], PrivateKeyDer::from(private_key))?;
 
-        crypto.alpn_protocols = vec![frames::v1::VERSION.to_vec()];
+        tls_config.alpn_protocols = vec![frames::v1::VERSION.to_vec()];
 
         let mut transport_config = TransportConfig::default();
 
@@ -44,7 +44,7 @@ impl Server {
         transport_config.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
 
         let mut server_config = ServerConfig::with_crypto(Arc::new(
-            quinn::crypto::rustls::QuicServerConfig::try_from(crypto)?,
+            quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)?,
         ));
 
         server_config.transport_config(Arc::new(transport_config));

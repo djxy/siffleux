@@ -5,11 +5,11 @@ use std::sync::{Arc, Mutex, RwLock};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
-use tracing::{error, info};
+use tracing::{debug, error};
 
+use crate::Ingress;
 use crate::common::protocols::v1::handle_protocol_v1_tcp_stream;
 use crate::common::{HashedAuthKey, IngressId};
-use crate::ingress::Ingress;
 use crate::{Error, Tunnel};
 
 #[derive(Clone)]
@@ -51,7 +51,7 @@ impl Ingress for TcpIngress {
             }
         });
 
-        info!(
+        debug!(
             "Added tunnel_name={} to ingres_id={}",
             tunnel.name(),
             self.id()
@@ -70,11 +70,11 @@ impl Ingress for TcpIngress {
                 return Err(Error::IngressAlreadyListening);
             }
 
-            info!("Starting tcp ingress_id={}", self.id());
+            debug!("Starting tcp ingress_id={}", self.id());
 
             let tcp_listener_arc = Arc::new(TcpListener::bind(self.inner.socket_addr).await?);
 
-            info!("Started tcp ingress_id={}", self.id());
+            debug!("Started tcp ingress_id={}", self.id());
 
             {
                 let mut tcp_listener_socket_addr = self.inner.tcp_listener_socket_addr.lock()?;
@@ -128,10 +128,10 @@ impl TcpIngress {
 
     async fn handle_listener(&self, tcp_listener: Arc<TcpListener>) -> Result<(), Error> {
         let tcp_listener_cancellation_token = CancellationToken::new();
-        info!("Tcp ingress_id={} waiting connections", self.id());
+        debug!("Tcp ingress_id={} waiting connections", self.id());
 
         while let Ok((tcp_stream, _)) = tcp_listener.accept().await {
-            info!("Received tcp connection on ingress_id={}", self.id());
+            debug!("Received tcp connection on ingress_id={}", self.id());
 
             let self_clone = self.clone();
             let tcp_listener_cancellation_token_clone = tcp_listener_cancellation_token.clone();
@@ -156,6 +156,7 @@ impl TcpIngress {
         tcp_stream: TcpStream,
         tcp_listener_cancellation_token: CancellationToken,
     ) -> Result<(), Error> {
+        let tcp_socket_addr = tcp_stream.local_addr()?;
         let (tcp_read_stream, tcp_write_stream): (OwnedReadHalf, OwnedWriteHalf) =
             tcp_stream.into_split();
 
@@ -176,6 +177,7 @@ impl TcpIngress {
         handle_protocol_v1_tcp_stream(
             read_stream,
             write_stream,
+            tcp_socket_addr,
             tcp_read_stream,
             tcp_write_stream,
             tcp_listener_cancellation_token,

@@ -5,12 +5,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 
 use crate::{
-    Error, Tunnel,
-    client::egress::Egress,
-    common::{
-        protocols::v1::handle_protocol_v1_tcp_stream,
-        tunnel::{TunnelReadStream, TunnelWriteStream},
-    },
+    Egress, Error, Tunnel, TunnelReadStream, TunnelWriteStream,
+    protocols::v1::handle_protocol_v1_tcp_stream,
 };
 
 #[derive(Clone)]
@@ -77,9 +73,9 @@ impl TcpEgress {
         let self_clone = self.clone();
 
         tokio::spawn(async move {
-            let (tcp_read_stream, tcp_write_stream) =
+            let (tcp_socket_addr, (tcp_read_stream, tcp_write_stream)) =
                 match TcpStream::connect(self_clone.inner.target_addr).await {
-                    Ok(tcp_stream) => tcp_stream.into_split(),
+                    Ok(tcp_stream) => (tcp_stream.local_addr().unwrap(), tcp_stream.into_split()),
                     Err(e) => {
                         warn!(
                             "Error opening tcp connection to target={}: {e}",
@@ -92,6 +88,7 @@ impl TcpEgress {
             handle_protocol_v1_tcp_stream(
                 tunnel_read_stream,
                 tunnel_write_stream,
+                tcp_socket_addr,
                 tcp_read_stream,
                 tcp_write_stream,
                 self_clone.inner.cancellation_token.clone(),
