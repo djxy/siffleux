@@ -6,7 +6,7 @@ use std::{
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use siffleux::{
     AuthKey, Client, Egress, Ingress, IngressClone, IngressId, Server, TcpEgress, TcpIngress,
-    TunnelName, code::CONNECTION_EOF, generate_self_signed_certificate,
+    TunnelName, generate_self_signed_certificate,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

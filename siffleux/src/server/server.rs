@@ -12,7 +12,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::{error, info, warn};
+use tracing::{debug, warn};
 
 #[derive(Clone)]
 pub struct Server {
@@ -117,7 +117,7 @@ impl Server {
 
     pub async fn stop(&self) -> Result<(), Error> {
         if let Some(endpoint) = self.inner.endpoint.lock()?.take() {
-            info!("Closing server");
+            debug!("Closing server");
             endpoint.close(VarInt::from_u32(0), b"done");
 
             Ok(())
@@ -159,7 +159,7 @@ impl Server {
                 Err(e) => {
                     connection.close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);
 
-                    error!("Incoming connection failed to receive the first stream: {e}");
+                    warn!("Incoming connection failed to receive the first stream: {e}");
 
                     return;
                 }
