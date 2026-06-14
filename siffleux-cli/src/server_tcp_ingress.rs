@@ -44,15 +44,14 @@ pub async fn start_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs
     server.assign_ingress(tcp_ingress.clone_box()).unwrap();
 
     info!(
-        "
-    siffleux client \\
-        --server {} \\
-        --cert-hash {} \\
-        tcp \\
-        --ingress-id {ingress_id} \\
-        --auth-key {} \\
-        --target <TARGET_IP>:<TARGET_PORT>
-        ",
+        "Command to tunnel to your client:
+siffleux client \\
+    --server {} \\
+    --cert-hash {} \\
+    tcp \\
+    --ingress-id {ingress_id} \\
+    --auth-key {} \\
+    --target <TARGET_IP>:<TARGET_PORT>",
         server.address().unwrap(),
         BASE64_ENGINE.encode(cert_hash),
         if provided_auth_key {
@@ -63,4 +62,6 @@ pub async fn start_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs
     );
 
     wait_for_shutdown_signal().await;
+
+    server.stop().await.unwrap();
 }

@@ -106,7 +106,7 @@ async fn test_detect_tunnel_closed() {
 
     let client = Client::new();
 
-    let tunnel = client
+    let (tunnel, _) = client
         .connect_tunnel_with_certificate_hash(
             auth_key,
             ingress_id.clone(),
@@ -154,7 +154,7 @@ async fn test_send_data_over_stream() {
 
     let client = Client::new();
 
-    let tunnel = client
+    let (tunnel, _) = client
         .connect_tunnel_with_certificate_hash(
             auth_key,
             ingress_id.clone(),
@@ -220,7 +220,7 @@ async fn test_multiple_handshake_v1_successful() {
 
         let client = Client::new();
 
-        let tunnel = client
+        let (tunnel, _) = client
             .connect_tunnel_with_certificate_hash(
                 auth_key.clone(),
                 ingress_id.clone(),
@@ -235,7 +235,7 @@ async fn test_multiple_handshake_v1_successful() {
             .await
             .unwrap();
 
-        tunnel.close();
+        tunnel.close().await;
 
         sleep(Duration::from_millis(10)).await;
 

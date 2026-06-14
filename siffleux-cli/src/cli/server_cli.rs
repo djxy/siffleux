@@ -12,9 +12,6 @@ pub struct ServerCommand {
 
     #[command(subcommand)]
     pub ingress: IngressCommand,
-
-    #[arg(long, default_value_t = false)]
-    pub verbose: bool,
 }
 
 #[derive(Subcommand)]

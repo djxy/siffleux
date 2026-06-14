@@ -21,9 +21,15 @@ async fn main() {
         .unwrap();
 
     tracing_subscriber::fmt()
-        .with_max_level(Level::DEBUG)
-        .try_init()
-        .unwrap();
+        .with_target(false)
+        .with_thread_ids(false)
+        .with_level(false)
+        .with_max_level(if cli.verbose {
+            Level::DEBUG
+        } else {
+            Level::INFO
+        })
+        .init();
 
     match cli.command {
         Commands::Server(server_command) => match server_command.ingress {

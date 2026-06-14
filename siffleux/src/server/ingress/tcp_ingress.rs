@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex, RwLock};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::Ingress;
 use crate::common::protocols::v1::handle_protocol_v1_tcp_stream;
@@ -41,6 +41,8 @@ impl Ingress for TcpIngress {
         let tunnel_clone = tunnel.clone();
         let self_clone = self.clone();
 
+        info!(tunnel_id = %tunnel.id(), "Assigned tunnel to TCP ingress.",);
+
         tokio::spawn(async move {
             tunnel_clone.closed().await;
 
@@ -50,12 +52,6 @@ impl Ingress for TcpIngress {
                 tunnels.swap_remove(i);
             }
         });
-
-        debug!(
-            "Added tunnel_name={} to ingres_id={}",
-            tunnel.name(),
-            self.id()
-        );
 
         self.inner.tunnels.write()?.push(tunnel);
 
@@ -70,11 +66,9 @@ impl Ingress for TcpIngress {
                 return Err(Error::IngressAlreadyListening);
             }
 
-            debug!("Starting tcp ingress_id={}", self.id());
+            info!(ingress_id = %self.id(), "Starting TCP ingress...");
 
             let tcp_listener_arc = Arc::new(TcpListener::bind(self.inner.socket_addr).await?);
-
-            debug!("Started tcp ingress_id={}", self.id());
 
             {
                 let mut tcp_listener_socket_addr = self.inner.tcp_listener_socket_addr.lock()?;
@@ -128,10 +122,14 @@ impl TcpIngress {
 
     async fn handle_listener(&self, tcp_listener: Arc<TcpListener>) -> Result<(), Error> {
         let tcp_listener_cancellation_token = CancellationToken::new();
-        debug!("Tcp ingress_id={} waiting connections", self.id());
+        info!(ingress_id = %self.id(), "Ready to accept TCP connections.");
 
         while let Ok((tcp_stream, _)) = tcp_listener.accept().await {
-            debug!("Received tcp connection on ingress_id={}", self.id());
+            debug!(
+                ingress_id = %self.id(),
+                remote_addr = %tcp_stream.peer_addr()?,
+                "Received TCP connection"
+            );
 
             let self_clone = self.clone();
             let tcp_listener_cancellation_token_clone = tcp_listener_cancellation_token.clone();

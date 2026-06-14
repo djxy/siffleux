@@ -12,7 +12,7 @@ use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::{debug, warn};
+use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct Server {
@@ -98,11 +98,15 @@ impl Server {
                 return Err(Error::ServerAlreadyListening);
             }
 
+            info!("Server starting listening for tunnels...");
+
             let endpoint = Endpoint::server(self.inner.server_config.clone(), socket_addr)?;
 
             *endpoint_guard = Some(endpoint.clone());
             endpoint
         };
+
+        info!("Server ready to accept tunnels.");
 
         let self_clone = self.clone();
 
@@ -117,8 +121,10 @@ impl Server {
 
     pub async fn stop(&self) -> Result<(), Error> {
         if let Some(endpoint) = self.inner.endpoint.lock()?.take() {
-            debug!("Closing server");
+            info!("Closing server...");
             endpoint.close(VarInt::from_u32(0), b"done");
+            endpoint.wait_idle().await;
+            info!("Server closed.");
 
             Ok(())
         } else {
@@ -133,7 +139,7 @@ impl Server {
             let connection = match incoming_connection.await {
                 Ok(conn) => conn,
                 Err(e) => {
-                    tracing::warn!("Incoming connection failed: {e}");
+                    error!("Incoming QUIC connection failed: {e}");
                     return;
                 }
             };
@@ -154,7 +160,7 @@ impl Server {
                 Err(e) => {
                     connection.close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);
 
-                    warn!("Incoming connection failed to receive the first stream: {e}");
+                    error!("QUIC connection failed to accept the first stream: {e}");
 
                     return;
                 }

@@ -70,7 +70,7 @@ async fn test_send_and_receive_data() {
 
     let client = Client::new();
 
-    let tunnel = client
+    let (tunnel, _) = client
         .connect_tunnel_with_certificate_hash(
             auth_key.clone(),
             ingress_id.clone(),
@@ -152,7 +152,7 @@ async fn test_target_tcp_write_dropped() {
 
     let client = Client::new();
 
-    let tunnel = client
+    let (tunnel, _) = client
         .connect_tunnel_with_certificate_hash(
             auth_key.clone(),
             ingress_id.clone(),
@@ -223,7 +223,7 @@ async fn test_origin_tcp_write_dropped() {
 
     let client = Client::new();
 
-    let tunnel = client
+    let (tunnel, _) = client
         .connect_tunnel_with_certificate_hash(
             auth_key.clone(),
             ingress_id.clone(),
@@ -268,6 +268,6 @@ async fn test_origin_tcp_write_dropped() {
     assert_eq!(false, result.is_err());
     assert_eq!(Some(0), result.ok());
 
-    tunnel.close();
+    tunnel.close().await;
     server.stop().await.unwrap();
 }

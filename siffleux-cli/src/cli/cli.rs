@@ -9,6 +9,9 @@ pub const CERT_SUBJECT_ALT_NAME: &'static str = "self-host.siffleux.dev";
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
+
+    #[arg(long, default_value_t = false)]
+    pub verbose: bool,
 }
 
 #[derive(Subcommand)]
