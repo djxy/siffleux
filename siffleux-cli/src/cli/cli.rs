@@ -15,6 +15,6 @@ pub struct Cli {
 pub enum Commands {
     /// Start a server
     Server(ServerCommand),
-    /// Start a tunnel
-    Tunnel(TunnelCommand),
+    /// Start a client
+    Client(TunnelCommand),
 }

@@ -66,8 +66,9 @@ impl Tunnel {
         self.inner.connection.closed().await;
     }
 
-    pub fn close(&self) {
+    pub async fn close(&self) {
         self.inner.connection.close(CONNECTION_EOF, b"done");
+        self.inner.connection.closed().await;
     }
 
     pub async fn create_stream(

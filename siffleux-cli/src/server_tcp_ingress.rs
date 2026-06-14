@@ -2,9 +2,7 @@ use std::net::SocketAddr;
 
 use base64::Engine;
 use siffleux::{
-    AuthKey, IngressId, Server, generate_self_signed_certificate,
-    ingress::{Ingress, IngressClone},
-    tcp_ingress::TcpIngress,
+    AuthKey, Ingress, IngressClone, IngressId, Server, TcpIngress, generate_self_signed_certificate,
 };
 use tracing::info;
 
@@ -13,7 +11,7 @@ use crate::{
     utils::{BASE64_ENGINE, generate_secure_random_key, wait_for_shutdown_signal},
 };
 
-pub async fn start_server_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs) {
+pub async fn start_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs) {
     let (cert_der, key, cert_hash) =
         generate_self_signed_certificate(&server_args.cert_subject_alt_name);
 
@@ -47,12 +45,12 @@ pub async fn start_server_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngr
 
     info!(
         "
-    siffleux tunnel \\
+    siffleux client \\
         --server {} \\
         --cert-hash {} \\
+        tcp \\
         --ingress-id {ingress_id} \\
         --auth-key {} \\
-        tcp \\
         --target <TARGET_IP>:<TARGET_PORT>
         ",
         server.address().unwrap(),
