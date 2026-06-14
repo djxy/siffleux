@@ -42,7 +42,7 @@ impl Ingress for TcpIngress {
         let self_clone = self.clone();
 
         tokio::spawn(async move {
-            tunnel_clone.connection().closed().await;
+            tunnel_clone.closed().await;
 
             let mut tunnels = self_clone.inner.tunnels.write().unwrap();
 

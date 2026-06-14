@@ -143,18 +143,13 @@ impl Server {
                     let send_framed = FramedWrite::new(send, CodecV1);
                     let recv_framed = FramedRead::new(recv, CodecV1);
 
-                    if let Err(e) = handle_server_protocol_v1_auth(
+                    let _ = handle_server_protocol_v1_auth(
                         self_clone.clone(),
                         connection.clone(),
                         send_framed,
                         recv_framed,
                     )
-                    .await
-                    {
-                        warn!("Auth failed: {e}");
-
-                        return;
-                    }
+                    .await;
                 }
                 Err(e) => {
                     connection.close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);

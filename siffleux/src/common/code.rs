@@ -6,17 +6,17 @@ use quinn::VarInt;
 pub const CONNECTION_EOF: VarInt = VarInt::from_u32(0);
 pub const COMMAND_STREAM_CLOSED: VarInt = VarInt::from_u32(1);
 
+pub const REJECTED_AUTH_KEY: VarInt = VarInt::from_u32(400);
+pub const REJECTED_INGRESS_ID: VarInt = VarInt::from_u32(401);
+
 // ###################
 // Stream codes [2000-2999]
 // ###################
 pub const STREAM_EOF: VarInt = VarInt::from_u32(2000);
 
-pub const DATA_STREAM_ERROR: VarInt = VarInt::from_u32(2001);
-
 // ###################
 // Common codes [3000-3999]
 // ###################
-pub const INVALID_VALUE: VarInt = VarInt::from_u32(3000);
 pub const UNEXPECTED_FRAME_RECEIVED: VarInt = VarInt::from_u32(3001);
 pub const FRAME_NOT_RECEIVED_ON_TIME: VarInt = VarInt::from_u32(3002);
 

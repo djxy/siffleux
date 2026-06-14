@@ -9,7 +9,7 @@ use tracing::{debug, warn};
 use crate::{
     Error, Server, Tunnel,
     code::{
-        COMMAND_STREAM_CLOSED, FRAME_NOT_RECEIVED_ON_TIME, INVALID_VALUE,
+        COMMAND_STREAM_CLOSED, FRAME_NOT_RECEIVED_ON_TIME, REJECTED_AUTH_KEY, REJECTED_INGRESS_ID,
         UNEXPECTED_FRAME_RECEIVED, UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON,
     },
     common::TunnelId,
@@ -41,11 +41,9 @@ pub async fn handle_server_protocol_v1_auth(
                                     tunnel_name,
                                 );
 
-                                let msg = "Rejected ingress_id";
+                                connection.close(REJECTED_INGRESS_ID, b"rejected ingress id");
 
-                                connection.close(INVALID_VALUE, msg.as_bytes());
-
-                                return Err(Error::InvalidData(msg.to_string()));
+                                return Err(Error::RejectedIngressId);
                             };
 
                             if !ingress.hashed_auth_key().verify(&auth_key) {
@@ -54,11 +52,9 @@ pub async fn handle_server_protocol_v1_auth(
                                     tunnel_name
                                 );
 
-                                let msg = "Rejected auth_key";
+                                connection.close(REJECTED_AUTH_KEY, b"rejected auth key");
 
-                                connection.close(INVALID_VALUE, msg.as_bytes());
-
-                                return Err(Error::InvalidData(msg.to_string()));
+                                return Err(Error::RejectedAuthKey);
                             }
 
                             let tunnel_id = TunnelId::new(
@@ -75,7 +71,7 @@ pub async fn handle_server_protocol_v1_auth(
 
                             send_framed
                                 .send(FrameV1::Authenticated {
-                                    tunnel_id: TunnelId::new(0),
+                                    tunnel_id,
                                 })
                                 .await?;
 

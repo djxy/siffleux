@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, warn};
 
 use crate::{
-    code::DATA_STREAM_ERROR,
+    code::UNKNOWN_ERROR,
     common::tunnel::{TunnelReadStream, TunnelWriteStream},
 };
 
@@ -42,14 +42,14 @@ pub fn handle_protocol_v1_tcp_stream(
                             Err(e) => {
                                 warn!("TCP read {tcp_socket_addr} or tunnel write stream failed with error: {e}");
 
-                                let _ = tunnel_write_stream.into_inner().reset(DATA_STREAM_ERROR);
+                                let _ = tunnel_write_stream.into_inner().reset(UNKNOWN_ERROR);
 
                                 stream_cancellation_token_clone.cancel();
                             }
                         }
                     }
                     _ = stream_cancellation_token_clone.cancelled() => {
-                        let _ = tunnel_write_stream.into_inner().reset(DATA_STREAM_ERROR);
+                        let _ = tunnel_write_stream.into_inner().reset(UNKNOWN_ERROR);
 
                         debug!("TCP read {tcp_socket_addr} -> tunnel write stream cancelled.");
                     }
@@ -74,7 +74,7 @@ pub fn handle_protocol_v1_tcp_stream(
                                 debug!("TCP write {tcp_socket_addr} or tunnel read stream failed with error: {e}");
 
                                 let _ = tcp_write_stream.shutdown().await;
-                                let _ = tunnel_read_stream.into_inner().stop(DATA_STREAM_ERROR);
+                                let _ = tunnel_read_stream.into_inner().stop(UNKNOWN_ERROR);
 
                                 stream_cancellation_token.cancel();
                             }
@@ -82,7 +82,7 @@ pub fn handle_protocol_v1_tcp_stream(
                     }
                     _ = stream_cancellation_token.cancelled() => {
                         let _ = tcp_write_stream.shutdown().await;
-                        let _ = tunnel_read_stream.into_inner().stop(DATA_STREAM_ERROR);
+                        let _ = tunnel_read_stream.into_inner().stop(UNKNOWN_ERROR);
 
                         debug!("Tunnel read stream -> tcp write {tcp_socket_addr} cancelled.");
                     }

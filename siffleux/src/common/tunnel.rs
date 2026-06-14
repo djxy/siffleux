@@ -58,8 +58,12 @@ impl Tunnel {
         &self.inner.byte_counter
     }
 
-    pub fn connection(&self) -> &Connection {
-        &self.inner.connection
+    pub fn is_closed(&self) -> bool {
+        self.inner.connection.close_reason().is_some()
+    }
+
+    pub async fn closed(&self) {
+        self.inner.connection.closed().await;
     }
 
     pub fn close(&self) {
@@ -102,7 +106,7 @@ impl Tunnel {
             InspectWriter::new(
                 send_stream,
                 Box::new(move |bytes| {
-                    stream_write_byte_counter.add_bytes_read(bytes.len());
+                    stream_write_byte_counter.add_bytes_write(bytes.len());
                 }),
             ),
             stream,

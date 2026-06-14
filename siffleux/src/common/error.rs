@@ -7,19 +7,22 @@ use std::string::FromUtf8Error;
 use std::sync::PoisonError;
 use thiserror::Error;
 
-use crate::code::{CONNECTION_EOF, INVALID_VALUE};
+use crate::code::{CONNECTION_EOF, REJECTED_AUTH_KEY, REJECTED_INGRESS_ID};
 use crate::common::IngressId;
 
 #[derive(Error, Debug)]
 pub enum Error {
-    #[error("Invalid data: {0}")]
-    InvalidData(String),
+    #[error("Frame not received on time: {0}")]
+    FrameNotReceivedOnTime(String),
+
+    #[error("Rejected ingress Id.")]
+    RejectedIngressId,
+
+    #[error("Rejected auth key.")]
+    RejectedAuthKey,
 
     #[error("Unexpected frame received: {0}")]
     UnexpectedFrameReceived(String),
-
-    #[error("Frame not received on time: {0}")]
-    FrameNotReceivedOnTime(String),
 
     #[error("Unknown error: {0}")]
     Unknown(Box<dyn std::error::Error + Send + Sync>),
@@ -29,9 +32,6 @@ pub enum Error {
     // ####################
     #[error("Auth frame not received")]
     AuthFrameNotReceived,
-
-    #[error("Auth key rejected.")]
-    AuthKeyRejected,
 
     #[error("Connection closed")]
     ConnectionClosed,
@@ -47,9 +47,6 @@ pub enum Error {
 
     #[error("Egress is not listening")]
     EgressNotListening,
-
-    #[error("Ingress Id rejected.")]
-    IngressIdRejected,
 
     #[error("Ingress has no tunnel connected")]
     IngressNoTunnelConnected,
@@ -164,9 +161,8 @@ impl From<ConnectionError> for Error {
         match connection_error {
             ConnectionError::ApplicationClosed(ac) => match ac.error_code {
                 c if c == CONNECTION_EOF => Error::ClosedTunnel,
-                c if c == INVALID_VALUE => {
-                    Error::InvalidData(String::from_utf8(ac.reason.to_vec()).unwrap())
-                }
+                c if c == REJECTED_AUTH_KEY => Error::RejectedAuthKey,
+                c if c == REJECTED_INGRESS_ID => Error::RejectedIngressId,
                 _ => Error::Unknown(ConnectionError::ApplicationClosed(ac).into()),
             },
             ConnectionError::TransportError(te) => match u64::from(te.code) {
@@ -180,14 +176,18 @@ impl From<ConnectionError> for Error {
 
 impl From<FromUtf8Error> for Error {
     fn from(value: FromUtf8Error) -> Self {
-        Error::InvalidData(value.to_string())
+        Error::Unknown(value.into())
     }
 }
 
 impl From<std::io::Error> for Error {
     fn from(io_error: std::io::Error) -> Self {
-        match io_error {
-            _ => Error::IO(io_error.into()),
+        match io_error.downcast::<quinn::WriteError>() {
+            Ok(write_err) => write_err.into(),
+            Err(io_error) => match io_error.downcast::<quinn::ReadError>() {
+                Ok(read_err) => read_err.into(),
+                Err(original_io_err) => Error::IO(original_io_err.into()),
+            },
         }
     }
 }
