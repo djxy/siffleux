@@ -2,7 +2,9 @@ use crate::Ingress;
 use crate::code::{UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON};
 use crate::common::{ByteCounter, IngressId};
 use crate::frames::v1::CodecV1;
-use crate::server::protocols::v1::handle_server_protocol_v1_auth;
+use crate::server::protocols::v1::{
+    handle_server_protocol_v1_auth, handle_server_protocol_v1_command_stream,
+};
 use crate::{Error, frames};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
@@ -146,16 +148,43 @@ impl Server {
 
             match connection.accept_bi().await {
                 Ok((send, recv)) => {
-                    let send_framed = FramedWrite::new(send, CodecV1);
-                    let recv_framed = FramedRead::new(recv, CodecV1);
+                    let mut write_framed = FramedWrite::new(send, CodecV1);
+                    let mut read_framed = FramedRead::new(recv, CodecV1);
 
-                    let _ = handle_server_protocol_v1_auth(
+                    let (ingress, tunnel) = match handle_server_protocol_v1_auth(
                         self_clone.clone(),
-                        connection.clone(),
-                        send_framed,
-                        recv_framed,
+                        connection,
+                        &mut write_framed,
+                        &mut read_framed,
                     )
-                    .await;
+                    .await
+                    {
+                        Ok((ingress, tunnel)) => (ingress, tunnel),
+                        Err(e) => {
+                            error!("Error while authenticating tunnel: {e}");
+                            return;
+                        }
+                    };
+
+                    if let Err(e) = ingress.assign_tunnel(tunnel.clone()) {
+                        error!("Error while authenticating tunnel: {e}");
+                    }
+
+                    if let Err(e) = handle_server_protocol_v1_command_stream(
+                        tunnel.clone(),
+                        write_framed,
+                        read_framed,
+                    )
+                    .await
+                    {
+                        tunnel
+                            .connection()
+                            .close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);
+
+                        error!(tunnel_id = %&tunnel.id(), "Tunnel closed. Error with command stream: {e}");
+                    } else {
+                        info!(tunnel_id = %&tunnel.id(), "Tunnel closed.");
+                    }
                 }
                 Err(e) => {
                     connection.close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);

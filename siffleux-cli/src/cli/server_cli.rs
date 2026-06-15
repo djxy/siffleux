@@ -23,7 +23,7 @@ pub enum IngressCommand {
 #[derive(Args)]
 pub struct TcpIngressAgrs {
     /// IP address the TCP ingress will listen for TCP connections
-    #[arg(long, default_value = "0.0.0.0")]
+    #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED))]
     pub ip: IpAddr,
 
     /// Port the TCP ingress will listen for TCP connections

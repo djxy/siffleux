@@ -1,4 +1,4 @@
-use quinn::{Connection, RecvStream, SendStream, StreamId};
+use quinn::{Connection, RecvStream, SendStream};
 use std::sync::Arc;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tokio_util::io::{InspectReader, InspectWriter};
@@ -62,6 +62,10 @@ impl Tunnel {
         self.inner.connection.close_reason().is_some()
     }
 
+    pub fn connection(&self) -> &Connection {
+        &self.inner.connection
+    }
+
     pub async fn closed(&self) {
         self.inner.connection.closed().await;
     }
@@ -73,7 +77,7 @@ impl Tunnel {
 
     pub async fn create_stream(
         &self,
-    ) -> Result<(TunnelReadStream, TunnelWriteStream, Stream), Error> {
+    ) -> Result<(TunnelReadStream, TunnelWriteStream, TunnelStream), Error> {
         let (send_stream, recv_stream) = self.inner.connection.open_bi().await?;
 
         self.quinn_stream_to_framed(send_stream, recv_stream)
@@ -81,7 +85,7 @@ impl Tunnel {
 
     pub async fn accept_stream(
         &self,
-    ) -> Result<(TunnelReadStream, TunnelWriteStream, Stream), Error> {
+    ) -> Result<(TunnelReadStream, TunnelWriteStream, TunnelStream), Error> {
         let (send_stream, recv_stream) = self.inner.connection.accept_bi().await?;
 
         self.quinn_stream_to_framed(send_stream, recv_stream)
@@ -91,8 +95,8 @@ impl Tunnel {
         &self,
         send_stream: SendStream,
         recv_stream: RecvStream,
-    ) -> Result<(TunnelReadStream, TunnelWriteStream, Stream), Error> {
-        let stream = Stream::new(send_stream.id(), self.inner.byte_counter.clone());
+    ) -> Result<(TunnelReadStream, TunnelWriteStream, TunnelStream), Error> {
+        let stream = TunnelStream::new(send_stream.id().index(), self.inner.byte_counter.clone());
 
         let stream_read_byte_counter = stream.byte_counter().clone();
         let stream_write_byte_counter = stream.byte_counter().clone();
@@ -122,26 +126,26 @@ pub type TunnelReadFramed = FramedRead<TunnelReadStream, CodecV1>;
 pub type TunnelWriteFramed = FramedWrite<TunnelWriteStream, CodecV1>;
 
 #[derive(Clone)]
-pub struct Stream {
-    inner: Arc<StreamInner>,
+pub struct TunnelStream {
+    inner: Arc<TunnelStreamInner>,
 }
 
-struct StreamInner {
-    id: StreamId,
+struct TunnelStreamInner {
+    id: u64,
     byte_counter: ByteCounter,
 }
 
-impl Stream {
-    fn new(id: StreamId, tunnel_byte_counter: ByteCounter) -> Self {
-        Stream {
-            inner: Arc::new(StreamInner {
+impl TunnelStream {
+    fn new(id: u64, tunnel_byte_counter: ByteCounter) -> Self {
+        TunnelStream {
+            inner: Arc::new(TunnelStreamInner {
                 id,
                 byte_counter: ByteCounter::new(Some(tunnel_byte_counter)),
             }),
         }
     }
 
-    pub fn id(&self) -> StreamId {
+    pub fn id(&self) -> u64 {
         self.inner.id
     }
 

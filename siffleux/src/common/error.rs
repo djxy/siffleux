@@ -27,9 +27,6 @@ pub enum Error {
     #[error("Unknown error: {0}")]
     Unknown(Box<dyn std::error::Error + Send + Sync>),
 
-    // ####################
-    // ####################
-    // ####################
     #[error("Auth frame not received")]
     AuthFrameNotReceived,
 

@@ -3,95 +3,167 @@ use std::net::SocketAddr;
 use tokio::{
     io::AsyncWriteExt,
     net::tcp::{OwnedReadHalf, OwnedWriteHalf},
-    task::JoinHandle,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, warn};
+use tracing::{debug, error, info};
 
 use crate::{
+    IngressId,
     code::UNKNOWN_ERROR,
-    common::tunnel::{TunnelReadStream, TunnelWriteStream},
+    common::tunnel::{TunnelReadStream, TunnelStream, TunnelWriteStream},
 };
 
-pub fn handle_protocol_v1_tcp_stream(
+pub async fn handle_protocol_v1_tcp_stream(
+    ingress_id: &IngressId,
+    tunnel_stream: TunnelStream,
     mut tunnel_read_stream: TunnelReadStream,
     mut tunnel_write_stream: TunnelWriteStream,
-    tcp_socket_addr: SocketAddr,
+    tcp_remote_addr: SocketAddr,
     mut tcp_read_stream: OwnedReadHalf,
     mut tcp_write_stream: OwnedWriteHalf,
     cancellation_token: CancellationToken,
-) -> JoinHandle<()> {
+) {
     let stream_cancellation_token = cancellation_token.child_token();
     let stream_cancellation_token_clone = stream_cancellation_token.clone();
+    let tunnel_stream_id = tunnel_stream.id();
 
-    tokio::spawn(async move {
-        tokio::join!(
-            async move {
-                debug!("Streaming TCP read {tcp_socket_addr} -> tunnel write stream");
+    info!(
+        ingress_id = %ingress_id,
+        remote = %tcp_remote_addr,
+        stream_id = %tunnel_stream_id,
+        "Started streaming TCP <-> Tunnel"
+    );
 
-                tokio::select! {
-                    copy_result = tokio::io::copy(&mut tcp_read_stream, &mut tunnel_write_stream) => {
-                        match copy_result {
-                            Ok(_) => {
-                                if let Err(e) = tunnel_write_stream.into_inner().finish() {
-                                    debug!("TCP read {tcp_socket_addr} closed and failed to finish tunnel write stream: {e}");
-                                } else {
-                                    debug!("TCP read {tcp_socket_addr} and tunnel write stream closed.");
-                                }
-                            }
-                            Err(e) => {
-                                warn!("TCP read {tcp_socket_addr} or tunnel write stream failed with error: {e}");
+    tokio::join!(
+        async move {
+            debug!(
+                ingress_id = %ingress_id,
+                remote = %tcp_remote_addr,
+                stream_id = %tunnel_stream_id,
+                "Streaming TCP read -> tunnel write"
+            );
 
-                                let _ = tunnel_write_stream.into_inner().reset(UNKNOWN_ERROR);
-
-                                stream_cancellation_token_clone.cancel();
-                            }
-                        }
-                    }
-                    _ = stream_cancellation_token_clone.cancelled() => {
-                        let _ = tunnel_write_stream.into_inner().reset(UNKNOWN_ERROR);
-
-                        debug!("TCP read {tcp_socket_addr} -> tunnel write stream cancelled.");
-                    }
-                }
-
-                debug!("TCP read {tcp_socket_addr} -> tunnel write stream closed.");
-            },
-            async move {
-                debug!("Streaming tunnel read stream -> TCP write {tcp_socket_addr}");
-
-                tokio::select! {
-                    copy_result = tokio::io::copy(&mut tunnel_read_stream, &mut tcp_write_stream) => {
-                        match copy_result {
-                            Ok(_) => {
-                                if let Err(e) = tcp_write_stream.shutdown().await {
-                                    debug!("Tunnel read stream closed and failed to shutdown TCP write {tcp_socket_addr}: {e}");
-                                } else {
-                                    debug!("Tunnel read stream and TCP write {tcp_socket_addr} closed.");
-                                }
-                            }
-                            Err(e) => {
-                                debug!("TCP write {tcp_socket_addr} or tunnel read stream failed with error: {e}");
-
-                                let _ = tcp_write_stream.shutdown().await;
-                                let _ = tunnel_read_stream.into_inner().stop(UNKNOWN_ERROR);
-
-                                stream_cancellation_token.cancel();
+            tokio::select! {
+                copy_result = tokio::io::copy(&mut tcp_read_stream, &mut tunnel_write_stream) => {
+                    match copy_result {
+                        Ok(_) => {
+                            if let Err(e) = tunnel_write_stream.into_inner().finish() {
+                                error!(
+                                    ingress_id = %ingress_id,
+                                    remote = %tcp_remote_addr,
+                                    stream_id = %tunnel_stream_id,
+                                    "TCP read closed and failed to finish tunnel write: {e}"
+                                );
+                            } else {
+                                debug!(
+                                    ingress_id = %ingress_id,
+                                    remote = %tcp_remote_addr,
+                                    stream_id = %tunnel_stream_id,
+                                    "TCP read and tunnel write closed."
+                                );
                             }
                         }
-                    }
-                    _ = stream_cancellation_token.cancelled() => {
-                        let _ = tcp_write_stream.shutdown().await;
-                        let _ = tunnel_read_stream.into_inner().stop(UNKNOWN_ERROR);
+                        Err(e) => {
+                            error!(
+                                ingress_id = %ingress_id,
+                                remote = %tcp_remote_addr,
+                                stream_id = %tunnel_stream_id,
+                                "TCP read or tunnel write failed with error: {e}"
+                            );
 
-                        debug!("Tunnel read stream -> tcp write {tcp_socket_addr} cancelled.");
+                            let _ = tunnel_write_stream.into_inner().reset(UNKNOWN_ERROR);
+
+                            stream_cancellation_token_clone.cancel();
+                        }
                     }
                 }
+                _ = stream_cancellation_token_clone.cancelled() => {
+                    let _ = tunnel_write_stream.into_inner().reset(UNKNOWN_ERROR);
 
-                debug!("Tunnel read stream -> tcp write {tcp_socket_addr} closed.");
+                    debug!(
+                        ingress_id = %ingress_id,
+                        remote = %tcp_remote_addr,
+                        stream_id = %tunnel_stream_id,
+                        "TCP read -> tunnel write cancelled."
+                    );
+                }
             }
-        );
 
-        debug!("TCP {tcp_socket_addr} and tunnel stream closed");
-    })
+            debug!(
+                ingress_id = %ingress_id,
+                remote = %tcp_remote_addr,
+                stream_id = %tunnel_stream_id,
+                "TCP read -> tunnel write closed."
+            );
+        },
+        async move {
+            debug!(
+                ingress_id = %ingress_id,
+                remote = %tcp_remote_addr,
+                stream_id = %tunnel_stream_id,
+                "Streaming tunnel read -> TCP write"
+            );
+
+            tokio::select! {
+                copy_result = tokio::io::copy(&mut tunnel_read_stream, &mut tcp_write_stream) => {
+                    match copy_result {
+                        Ok(_) => {
+                            if let Err(e) = tcp_write_stream.shutdown().await {
+                                error!(
+                                    ingress_id = %ingress_id,
+                                    remote = %tcp_remote_addr,
+                                    stream_id = %tunnel_stream_id,
+                                    "Tunnel read closed and failed to shutdown TCP write: {e}"
+                                );
+                            } else {
+                                debug!(
+                                    ingress_id = %ingress_id,
+                                    remote = %tcp_remote_addr,
+                                    stream_id = %tunnel_stream_id,
+                                    "Tunnel read and TCP write closed."
+                                );
+                            }
+                        }
+                        Err(e) => {
+                            error!(
+                                ingress_id = %ingress_id,
+                                remote = %tcp_remote_addr,
+                                stream_id = %tunnel_stream_id,
+                                "TCP write or tunnel read failed with error: {e}"
+                            );
+
+                            let _ = tcp_write_stream.shutdown().await;
+                            let _ = tunnel_read_stream.into_inner().stop(UNKNOWN_ERROR);
+
+                            stream_cancellation_token.cancel();
+                        }
+                    }
+                }
+                _ = stream_cancellation_token.cancelled() => {
+                    let _ = tcp_write_stream.shutdown().await;
+                    let _ = tunnel_read_stream.into_inner().stop(UNKNOWN_ERROR);
+
+                    debug!(
+                        ingress_id = %ingress_id,
+                        remote = %tcp_remote_addr,
+                        stream_id = %tunnel_stream_id,
+                        "Tunnel read -> TCP write cancelled."
+                    );
+                }
+            }
+
+            debug!(
+                ingress_id = %ingress_id,
+                remote = %tcp_remote_addr,
+                stream_id = %tunnel_stream_id,
+                "Tunnel read -> TCP write closed.");
+        }
+    );
+
+    info!(
+        ingress_id = %ingress_id,
+        remote = %tcp_remote_addr,
+        stream_id = %tunnel_stream_id,
+        "Finished streaming TCP <-> Tunnel"
+    );
 }

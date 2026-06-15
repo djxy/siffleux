@@ -41,7 +41,11 @@ impl Ingress for TcpIngress {
         let tunnel_clone = tunnel.clone();
         let self_clone = self.clone();
 
-        info!(tunnel_id = %tunnel.id(), "Assigned tunnel to TCP ingress.",);
+        info!(
+            ingress_id = %self.id(),
+            tunnel_id = %tunnel.id(),
+            "Assigned tunnel to TCP ingress."
+        );
 
         tokio::spawn(async move {
             tunnel_clone.closed().await;
@@ -122,7 +126,7 @@ impl TcpIngress {
 
     async fn handle_listener(&self, tcp_listener: Arc<TcpListener>) -> Result<(), Error> {
         let tcp_listener_cancellation_token = CancellationToken::new();
-        info!(ingress_id = %self.id(), "Ready to accept TCP connections.");
+        info!(ingress_id = %self.id(), "Ready to accept TCP connections on {}.", self.inner.socket_addr);
 
         while let Ok((tcp_stream, _)) = tcp_listener.accept().await {
             debug!(
@@ -154,7 +158,7 @@ impl TcpIngress {
         tcp_stream: TcpStream,
         tcp_listener_cancellation_token: CancellationToken,
     ) -> Result<(), Error> {
-        let tcp_socket_addr = tcp_stream.local_addr()?;
+        let tcp_remote_addr = tcp_stream.peer_addr()?;
         let (tcp_read_stream, tcp_write_stream): (OwnedReadHalf, OwnedWriteHalf) =
             tcp_stream.into_split();
 
@@ -170,16 +174,20 @@ impl TcpIngress {
             return Err(Error::IngressNoTunnelConnected);
         };
 
-        let (read_stream, write_stream, _) = tunnel.create_stream().await?;
+        let (tunnel_read_stream, tunnel_write_stream, tunnel_stream) =
+            tunnel.create_stream().await?;
 
         handle_protocol_v1_tcp_stream(
-            read_stream,
-            write_stream,
-            tcp_socket_addr,
+            self.id(),
+            tunnel_stream,
+            tunnel_read_stream,
+            tunnel_write_stream,
+            tcp_remote_addr,
             tcp_read_stream,
             tcp_write_stream,
             tcp_listener_cancellation_token,
-        );
+        )
+        .await;
 
         Ok(())
     }

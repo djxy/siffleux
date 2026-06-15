@@ -19,6 +19,7 @@ pub use ingress_id::IngressId;
 pub use tunnel::Tunnel;
 pub use tunnel::TunnelReadFramed;
 pub use tunnel::TunnelReadStream;
+pub use tunnel::TunnelStream;
 pub use tunnel::TunnelWriteFramed;
 pub use tunnel::TunnelWriteStream;
 pub use tunnel_id::TunnelId;

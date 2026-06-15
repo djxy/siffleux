@@ -46,13 +46,13 @@ pub async fn start_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs
     info!(
         "Command to tunnel to your client:
 siffleux client \\
-    --server {} \\
+    --server <SERVER_IP>:{} \\
     --cert-hash {} \\
     tcp \\
     --ingress-id {ingress_id} \\
     --auth-key {} \\
     --target <TARGET_IP>:<TARGET_PORT>",
-        server.address().unwrap(),
+        server.address().unwrap().port(),
         BASE64_ENGINE.encode(cert_hash),
         if provided_auth_key {
             "<AUTH_KEY>"
