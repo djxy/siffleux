@@ -4,7 +4,7 @@ use std::{
 };
 
 use quinn::{ClientConfig, Endpoint, crypto::rustls::QuicClientConfig};
-use tracing::debug;
+use tracing::info;
 
 use crate::{
     Error, Tunnel,
@@ -53,26 +53,26 @@ impl Client {
 
         tls_config.alpn_protocols = vec![frames::v1::VERSION.to_vec()];
 
-        debug!("Connecting to server ingress_id={ingress_id} with certificate(s).");
+        info!(server = %server_address, ingress_id = %ingress_id.clone(), "Connecting to server...");
 
         let endpoint = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?;
+        let tunnel = handle_client_protocol_v1_auth(
+            endpoint
+                .connect_with(
+                    ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls_config)?)),
+                    server_address,
+                    &server_name,
+                )?
+                .await?,
+            auth_key,
+            ingress_id.clone(),
+            name,
+            &self.inner.byte_counter,
+        )
+        .await?;
 
-        Ok((
-            handle_client_protocol_v1_auth(
-                endpoint
-                    .connect_with(
-                        ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls_config)?)),
-                        server_address,
-                        &server_name,
-                    )?
-                    .await?,
-                auth_key,
-                ingress_id,
-                name,
-                &self.inner.byte_counter,
-            )
-            .await?,
-            endpoint,
-        ))
+        info!(server = %server_address, ingress_id = %ingress_id, "Connected to server.");
+
+        Ok((tunnel, endpoint))
     }
 }
