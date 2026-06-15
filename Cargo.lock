@@ -1331,6 +1331,7 @@ dependencies = [
  "clap",
  "getrandom 0.4.2",
  "rustls",
+ "rustls-pki-types",
  "siffleux",
  "tokio",
  "tracing",

@@ -12,3 +12,4 @@ getrandom = { workspace = true }
 base64 = "0.22.1"
 clap = { version = "4.6.1", features = ["derive"] }
 siffleux = { version = "0.1.0", path = "../siffleux" }
+rustls-pki-types = "1.14.1"

@@ -25,3 +25,4 @@ pub use tunnel::TunnelWriteStream;
 pub use tunnel_id::TunnelId;
 pub use tunnel_name::TunnelName;
 pub use utils::generate_self_signed_certificate;
+pub use utils::hash_certificate;

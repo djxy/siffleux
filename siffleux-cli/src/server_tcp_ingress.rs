@@ -8,12 +8,15 @@ use tracing::info;
 
 use crate::{
     cli::{ServerArgs, TcpIngressAgrs},
-    utils::{BASE64_ENGINE, generate_secure_random_key, wait_for_shutdown_signal},
+    utils::{
+        BASE64_ENGINE, generate_secure_random_key, load_or_generate_self_signed_certificate,
+        wait_for_shutdown_signal,
+    },
 };
 
 pub async fn start_tcp_ingress(server_args: ServerArgs, tcp_args: TcpIngressAgrs) {
     let (cert_der, key, cert_hash) =
-        generate_self_signed_certificate(&server_args.cert_subject_alt_name);
+        load_or_generate_self_signed_certificate(&server_args.cert_subject_alt_name).await;
 
     let provided_auth_key = tcp_args.auth_key.is_some();
     let auth_key = tcp_args
