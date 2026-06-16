@@ -83,7 +83,9 @@ fn init() -> &'static (
             .install_default()
             .unwrap();
 
-        generate_self_signed_certificate(SERVER_NAME)
+        let (cert, key, cert_hash, _, _) = generate_self_signed_certificate(SERVER_NAME);
+
+        (cert, key, cert_hash)
     })
 }
 
@@ -377,7 +379,7 @@ async fn test_connection_with_wrong_certificate_hash() {
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
-    let (_, _, wrongcert_hash) = generate_self_signed_certificate(SERVER_NAME);
+    let (_, _, wrong_cert_hash, _, _) = generate_self_signed_certificate(SERVER_NAME);
 
     let client = Client::new();
 
@@ -391,7 +393,7 @@ async fn test_connection_with_wrong_certificate_hash() {
                 server.address().unwrap().port(),
             ),
             SERVER_NAME.to_string(),
-            wrongcert_hash.clone(),
+            wrong_cert_hash.clone(),
         )
         .await;
 

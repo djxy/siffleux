@@ -1,9 +1,7 @@
 use std::net::SocketAddr;
 
 use base64::Engine;
-use siffleux::{
-    AuthKey, Ingress, IngressClone, IngressId, Server, TcpIngress, generate_self_signed_certificate,
-};
+use siffleux::{AuthKey, Ingress, IngressClone, IngressId, Server, TcpIngress};
 use tracing::info;
 
 use crate::{

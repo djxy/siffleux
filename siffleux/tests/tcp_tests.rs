@@ -37,7 +37,9 @@ fn init() -> &'static (
             .install_default()
             .unwrap();
 
-        generate_self_signed_certificate(SERVER_NAME)
+        let (cert, key, cert_hash, _, _) = generate_self_signed_certificate(SERVER_NAME);
+
+        (cert, key, cert_hash)
     })
 }
 
