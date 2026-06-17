@@ -4,6 +4,7 @@ mod server_tcp_ingress;
 mod utils;
 
 use clap::Parser;
+use rustls::crypto::aws_lc_rs;
 use tracing::Level;
 
 use crate::{
@@ -16,9 +17,9 @@ use crate::{
 async fn main() {
     let cli = Cli::parse();
 
-    rustls::crypto::ring::default_provider()
+    aws_lc_rs::default_provider()
         .install_default()
-        .unwrap();
+        .expect("Failed to install crypto provider");
 
     tracing_subscriber::fmt()
         .with_target(false)

@@ -3,7 +3,10 @@ use std::{
     sync::OnceLock,
 };
 
-use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+use rustls::{
+    crypto::aws_lc_rs,
+    pki_types::{CertificateDer, PrivatePkcs8KeyDer},
+};
 use siffleux::{
     AuthKey, Client, Egress, Ingress, IngressClone, IngressId, Server, TcpEgress, TcpIngress,
     TunnelName, generate_self_signed_certificate,
@@ -33,9 +36,9 @@ fn init() -> &'static (
             .with_max_level(Level::DEBUG)
             .try_init();
 
-        rustls::crypto::ring::default_provider()
+        aws_lc_rs::default_provider()
             .install_default()
-            .unwrap();
+            .expect("Failed to install crypto provider");
 
         let (cert, key, cert_hash, _, _) = generate_self_signed_certificate(SERVER_NAME);
 
