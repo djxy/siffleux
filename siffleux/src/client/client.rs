@@ -55,7 +55,7 @@ impl Client {
 
         info!(server = %server_address, ingress_id = %ingress_id.clone(), "Connecting to server...");
 
-        let endpoint = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))?;
+        let endpoint = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))?;
         let tunnel = handle_client_protocol_v1_auth(
             endpoint
                 .connect_with(
