@@ -1,0 +1,15 @@
+FROM rust:1.96 AS builder
+
+COPY . .
+
+RUN cargo build --release
+
+FROM gcr.io/distroless/cc-debian13
+
+COPY --from=builder /target/release/siffleux-cli /usr/local/bin/siffleux
+
+USER nonroot:nonroot
+
+WORKDIR /siffleux
+
+ENTRYPOINT ["/usr/local/bin/siffleux"]

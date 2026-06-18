@@ -1,9 +1,11 @@
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     sync::Arc,
 };
 
-use quinn::{ClientConfig, Endpoint, crypto::rustls::QuicClientConfig};
+use quinn::{ClientConfig, Endpoint, TransportConfig, crypto::rustls::QuicClientConfig};
+use socket2::{Domain, Protocol, Socket, Type};
+use tokio::net::lookup_host;
 use tracing::info;
 
 use crate::{
@@ -55,14 +57,57 @@ impl Client {
 
         info!(server = %server_address, ingress_id = %ingress_id.clone(), "Connecting to server...");
 
-        let endpoint = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))?;
+        let mut transport_config = TransportConfig::default();
+
+        // TODO: Review those parameters. I just increased them without any meaning
+        transport_config.send_window(256 * 1024 * 1024);
+        transport_config.receive_window((256 * 1024 * 1024u32).into());
+        transport_config.stream_receive_window((64 * 1024 * 1024u32).into());
+
+        transport_config.max_concurrent_bidi_streams(1000u32.into());
+
+        let mut client_config =
+            ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls_config)?));
+
+        client_config.transport_config(Arc::new(transport_config));
+
+        // TODO: Change how the lookup_host is passed. Currently it is for the docker compose
+        info!("Lookup server");
+        let mut addresses = lookup_host("server:8765").await?;
+        info!("Lookup serve done");
+
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+
+        // TODO: Review those parameters. I just increased them without any meaning
+        socket.set_send_buffer_size(8 * 1024 * 1024)?;
+        socket.set_recv_buffer_size(8 * 1024 * 1024)?;
+        socket.set_reuse_address(true)?;
+        socket.bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0).into())?;
+
+        if let Ok(actual_send) = socket.send_buffer_size() {
+            info!("Kernel Send Buffer Size: {} bytes", actual_send);
+        }
+
+        if let Ok(actual_recv) = socket.recv_buffer_size() {
+            info!("Kernel Receive Buffer Size: {} bytes", actual_recv);
+        }
+
+        let std_socket: UdpSocket = socket.into();
+
+        std_socket.set_nonblocking(true)?;
+
+        // let endpoint = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))?;
+
+        let endpoint = quinn::Endpoint::new(
+            quinn::EndpointConfig::default(),
+            None,
+            std_socket,
+            Arc::new(quinn::TokioRuntime),
+        )?;
+
         let tunnel = handle_client_protocol_v1_auth(
             endpoint
-                .connect_with(
-                    ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls_config)?)),
-                    server_address,
-                    &server_name,
-                )?
+                .connect_with(client_config, addresses.next().unwrap(), &server_name)?
                 .await?,
             auth_key,
             ingress_id.clone(),

@@ -1,0 +1,25 @@
+services:
+  server:
+    build:
+      dockerfile: ./Dockerfile
+    ports:
+      - 3000:3000
+    volumes:
+      - server_data:/siffleux
+    command: --verbose server tcp --ingress-id tcp-test --auth-key test
+  client:
+    build:
+      dockerfile: ./Dockerfile
+    command: --verbose client --server 127.0.0.1:8765 --cert-hash HQ1Xn8z2BcyP6vwiZ1bOEwvUZP8BVI7Eki-qCIQj-NQ= tcp --ingress-id tcp-test --auth-key test --target 192.168.0.164:80
+  # client-latency-shaper:
+  #   image: alpine:latest
+  #   privileged: true
+  #   network_mode: "service:client" # Shape the client container's outgoing interface
+  #   command: >
+  #     sh -c "
+  #     apk add --no-cache iproute2-tc;
+  #     tc qdisc add dev lo root netem delay 50ms 10ms;
+  #     while true; do sleep 3600; done
+  #     "
+volumes:
+  server_data:

@@ -8,8 +8,9 @@ use crate::server::protocols::v1::{
 use crate::{Error, frames};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
+use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::HashMap;
-use std::net::SocketAddr;
+use std::net::{SocketAddr, UdpSocket};
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -44,6 +45,13 @@ impl Server {
 
         transport_config.keep_alive_interval(Some(Duration::from_secs(5)));
         transport_config.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
+
+        // TODO: Review those parameters. I just increased them without any meaning
+        transport_config.send_window(256 * 1024 * 1024);
+        transport_config.receive_window((256 * 1024 * 1024u32).into());
+        transport_config.stream_receive_window((64 * 1024 * 1024u32).into());
+
+        transport_config.max_concurrent_bidi_streams(1000u32.into());
 
         let mut server_config = ServerConfig::with_crypto(Arc::new(
             quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)?,
@@ -102,7 +110,32 @@ impl Server {
 
             info!("Server starting listening for tunnels...");
 
-            let endpoint = Endpoint::server(self.inner.server_config.clone(), socket_addr)?;
+            let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+
+            // TODO: Review those parameters. I just increased them without any meaning
+            socket.set_send_buffer_size(8 * 1024 * 1024)?;
+            socket.set_recv_buffer_size(8 * 1024 * 1024)?;
+            socket.set_reuse_address(true)?;
+            socket.bind(&socket_addr.into())?;
+
+            if let Ok(actual_send) = socket.send_buffer_size() {
+                info!("Kernel Send Buffer Size: {} bytes", actual_send);
+            }
+
+            if let Ok(actual_recv) = socket.recv_buffer_size() {
+                info!("Kernel Receive Buffer Size: {} bytes", actual_recv);
+            }
+
+            let std_socket: UdpSocket = socket.into();
+
+            std_socket.set_nonblocking(true)?;
+
+            let endpoint = quinn::Endpoint::new(
+                quinn::EndpointConfig::default(),
+                Some(self.inner.server_config.clone()),
+                std_socket,
+                Arc::new(quinn::TokioRuntime),
+            )?;
 
             *endpoint_guard = Some(endpoint.clone());
             endpoint

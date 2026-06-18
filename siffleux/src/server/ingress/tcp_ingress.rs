@@ -162,14 +162,6 @@ impl TcpIngress {
         let (tcp_read_stream, tcp_write_stream): (OwnedReadHalf, OwnedWriteHalf) =
             tcp_stream.into_split();
 
-        if let Err(e) = tcp_read_stream.readable().await {
-            return Err(e.into());
-        }
-
-        if let Err(e) = tcp_write_stream.writable().await {
-            return Err(e.into());
-        }
-
         let Ok(Some(tunnel)) = self.get_tunnel_to_connect() else {
             return Err(Error::IngressNoTunnelConnected);
         };
