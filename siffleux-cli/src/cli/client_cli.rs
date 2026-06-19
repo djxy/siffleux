@@ -37,10 +37,13 @@ pub struct ClientArgs {
 pub enum EgressCommand {
     /// Start a tunnel to redirect TCP connections to a target
     Tcp(TcpEgressAgrs),
+
+    /// Start a tunnel that will automatically close all streams opened by the server
+    End(EndEgressAgrs),
 }
 
 #[derive(Args)]
-pub struct TcpEgressAgrs {
+pub struct EgressAgrs {
     /// ID of the ingress to receive ingress connections
     #[arg(long)]
     pub ingress_id: IngressId,
@@ -48,8 +51,20 @@ pub struct TcpEgressAgrs {
     /// Authentication key used to connect to the ingress
     #[arg(long)]
     pub auth_key: AuthKey,
+}
+
+#[derive(Args)]
+pub struct TcpEgressAgrs {
+    #[command(flatten)]
+    pub egress_args: EgressAgrs,
 
     /// Address (ip:port) to send the TCP connections received from the ingress
     #[arg(long)]
     pub target: SocketAddr,
+}
+
+#[derive(Args)]
+pub struct EndEgressAgrs {
+    #[command(flatten)]
+    pub egress_args: EgressAgrs,
 }

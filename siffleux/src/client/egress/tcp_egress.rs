@@ -1,8 +1,14 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    sync::{
+        Arc,
+        atomic::{AtomicU16, Ordering},
+    },
+};
 
-use tokio::net::TcpStream;
+use tokio::{io::AsyncWriteExt, net::TcpSocket};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, warn};
+use tracing::{debug, error};
 
 use crate::{
     Egress, Error, Tunnel, TunnelReadStream, TunnelStream, TunnelWriteStream,
@@ -18,6 +24,7 @@ struct TcpEgressInner {
     tunnel: Tunnel,
     target_addr: SocketAddr,
     cancellation_token: CancellationToken,
+    port_pool: AtomicU16,
 }
 
 #[async_trait::async_trait]
@@ -61,6 +68,7 @@ impl TcpEgress {
                 tunnel,
                 target_addr,
                 cancellation_token: CancellationToken::new(),
+                port_pool: AtomicU16::new(0),
             }),
         }
     }
@@ -69,19 +77,33 @@ impl TcpEgress {
         &self,
         tunnel_stream: TunnelStream,
         tunnel_read_stream: TunnelReadStream,
-        tunnel_write_stream: TunnelWriteStream,
+        mut tunnel_write_stream: TunnelWriteStream,
     ) {
         let self_clone = self.clone();
 
         tokio::spawn(async move {
+            let tcp_socket: TcpSocket = 'attempt: {
+                for _ in 0..5 {
+                    if let Ok(socket) = self_clone.get_tcp_socket().await {
+                        break 'attempt socket;
+                    }
+                }
+
+                let _ = tunnel_write_stream.shutdown().await;
+
+                return;
+            };
+
             let (tcp_remote_addr, (tcp_read_stream, tcp_write_stream)) =
-                match TcpStream::connect(self_clone.inner.target_addr).await {
+                match tcp_socket.connect(self_clone.inner.target_addr).await {
                     Ok(tcp_stream) => (tcp_stream.peer_addr().unwrap(), tcp_stream.into_split()),
                     Err(e) => {
-                        warn!(
+                        error!(
                             "Error opening tcp connection to target={}: {e}",
                             self_clone.inner.target_addr
                         );
+                        let _ = tunnel_write_stream.shutdown().await;
+
                         return;
                     }
                 };
@@ -98,5 +120,22 @@ impl TcpEgress {
             )
             .await;
         });
+    }
+
+    async fn get_tcp_socket(&self) -> Result<TcpSocket, Error> {
+        let local_addr = SocketAddr::new(
+            Ipv4Addr::UNSPECIFIED.into(),
+            10000 + (self.inner.port_pool.fetch_add(1, Ordering::SeqCst) % 40000),
+        );
+
+        let socket = TcpSocket::new_v4()?;
+
+        socket.set_reuseaddr(true)?;
+        socket.set_reuseport(true)?;
+        socket.set_zero_linger()?;
+
+        socket.bind(local_addr)?;
+
+        Ok(socket)
     }
 }

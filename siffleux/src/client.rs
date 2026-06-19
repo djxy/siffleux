@@ -5,4 +5,5 @@ mod protocols;
 
 pub use client::Client;
 pub use egress::Egress;
+pub use egress::EndEgress;
 pub use egress::TcpEgress;

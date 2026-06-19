@@ -1,16 +1,16 @@
 use std::time::Duration;
 
 use base64::Engine;
-use siffleux::{Client, Egress, TcpEgress, TunnelName};
+use siffleux::{Client, Egress, EndEgress, TcpEgress, TunnelName};
 use tokio::time::sleep;
 use tracing::{error, info, warn};
 
 use crate::{
-    cli::{ClientArgs, TcpEgressAgrs},
+    cli::{ClientArgs, EndEgressAgrs},
     utils::{BASE64_ENGINE, generate_secure_random_key, wait_for_shutdown_signal},
 };
 
-pub async fn start_tcp_egress(tunnel_args: ClientArgs, tcp_args: TcpEgressAgrs) {
+pub async fn start_end_egress(tunnel_args: ClientArgs, end_args: EndEgressAgrs) {
     let client = Client::new();
     let tunnel_name = tunnel_args
         .name
@@ -20,8 +20,8 @@ pub async fn start_tcp_egress(tunnel_args: ClientArgs, tcp_args: TcpEgressAgrs) 
     loop {
         let (tunnel, endpoint) = match client
             .connect_tunnel_with_certificate_hash(
-                tcp_args.egress_args.auth_key.clone(),
-                tcp_args.egress_args.ingress_id.clone(),
+                end_args.egress_args.auth_key.clone(),
+                end_args.egress_args.ingress_id.clone(),
                 tunnel_name.clone(),
                 tunnel_args.server,
                 tunnel_args.cert_subject_alt_name.clone(),
@@ -33,7 +33,7 @@ pub async fn start_tcp_egress(tunnel_args: ClientArgs, tcp_args: TcpEgressAgrs) 
             Err(e) => {
                 error!(
                     server = %tunnel_args.server,
-                    ingress_id = %&tcp_args.egress_args.ingress_id.clone(),
+                    ingress_id = %end_args.egress_args.ingress_id.clone(),
                     "Error while connecting to server: {e}"
                 );
 
@@ -41,15 +41,15 @@ pub async fn start_tcp_egress(tunnel_args: ClientArgs, tcp_args: TcpEgressAgrs) 
             }
         };
 
-        let tcp_egress = TcpEgress::new(tunnel.clone(), tcp_args.target);
+        let end_egress = EndEgress::new(tunnel.clone());
 
-        tcp_egress.start().await.unwrap();
+        end_egress.start().await.unwrap();
 
         tokio::select! {
             _ = tunnel.closed() => {
                 warn!(
                     server = %tunnel_args.server,
-                    ingress_id = %tcp_args.egress_args.ingress_id.clone(),
+                    ingress_id = %&end_args.egress_args.ingress_id.clone(),
                     "Server disconnected, reconnecting in 5 seconds."
                 );
 
@@ -58,7 +58,7 @@ pub async fn start_tcp_egress(tunnel_args: ClientArgs, tcp_args: TcpEgressAgrs) 
             _ = wait_for_shutdown_signal() => {
                 info!("Closing...");
 
-                tcp_egress.stop().await.unwrap();
+                end_egress.stop().await.unwrap();
                 tunnel.close().await;
                 endpoint.wait_idle().await;
 

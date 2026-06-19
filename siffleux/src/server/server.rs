@@ -118,14 +118,6 @@ impl Server {
             socket.set_reuse_address(true)?;
             socket.bind(&socket_addr.into())?;
 
-            if let Ok(actual_send) = socket.send_buffer_size() {
-                info!("Kernel Send Buffer Size: {} bytes", actual_send);
-            }
-
-            if let Ok(actual_recv) = socket.recv_buffer_size() {
-                info!("Kernel Receive Buffer Size: {} bytes", actual_recv);
-            }
-
             let std_socket: UdpSocket = socket.into();
 
             std_socket.set_nonblocking(true)?;

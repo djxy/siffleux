@@ -1,4 +1,5 @@
 mod cli;
+mod client_end_egress;
 mod client_tcp_egress;
 mod server_tcp_ingress;
 mod utils;
@@ -9,6 +10,7 @@ use tracing::Level;
 
 use crate::{
     cli::{Cli, Commands, EgressCommand, IngressCommand},
+    client_end_egress::start_end_egress,
     client_tcp_egress::start_tcp_egress,
     server_tcp_ingress::start_tcp_ingress,
 };
@@ -41,6 +43,9 @@ async fn main() {
         Commands::Client(client_command) => match client_command.egress {
             EgressCommand::Tcp(tcp_args) => {
                 start_tcp_egress(client_command.client_args, tcp_args).await
+            }
+            EgressCommand::End(end_args) => {
+                start_end_egress(client_command.client_args, end_args).await
             }
         },
     }
