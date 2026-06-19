@@ -18,6 +18,7 @@ argon2 = "0.5.3"
 sha2 = "0.11.0"
 futures-util = { version = "0.3.32", features = ["sink"] }
 socket2 = "0.6.4"
+quinn-udp = { version = "0.6.1", features = ["fast-apple-datapath"] }
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }

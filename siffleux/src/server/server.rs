@@ -6,6 +6,7 @@ use crate::server::protocols::v1::{
     handle_server_protocol_v1_auth, handle_server_protocol_v1_command_stream,
 };
 use crate::{Error, frames};
+use quinn::udp::{UdpSockRef, UdpSocketState};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use socket2::{Domain, Protocol, Socket, Type};
@@ -108,19 +109,23 @@ impl Server {
                 return Err(Error::ServerAlreadyListening);
             }
 
-            info!("Server starting listening for tunnels...");
+            info!("Starting listening for tunnels...");
 
             let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
 
-            // TODO: Review those parameters. I just increased them without any meaning
             socket.set_send_buffer_size(8 * 1024 * 1024)?;
             socket.set_recv_buffer_size(8 * 1024 * 1024)?;
             socket.set_reuse_address(true)?;
+            socket.set_nonblocking(true)?;
             socket.bind(&socket_addr.into())?;
 
-            let std_socket: UdpSocket = socket.into();
+            let udp_state = UdpSocketState::new(UdpSockRef::from(&socket))?;
 
-            std_socket.set_nonblocking(true)?;
+            info!("Max GSO segments: {}", udp_state.max_gso_segments());
+            info!("GRO segments:     {}", udp_state.gro_segments());
+            info!("May fragment:     {}", udp_state.may_fragment());
+
+            let std_socket: UdpSocket = socket.into();
 
             let endpoint = quinn::Endpoint::new(
                 quinn::EndpointConfig::default(),
@@ -133,7 +138,7 @@ impl Server {
             endpoint
         };
 
-        info!("Server ready to accept tunnels.");
+        info!("Ready to accept tunnels.");
 
         let self_clone = self.clone();
 

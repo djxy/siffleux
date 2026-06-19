@@ -16,9 +16,9 @@ pub struct TunnelCommand {
 
 #[derive(Args)]
 pub struct ClientArgs {
-    /// Address (ip:port) of the server to connect the tunnel
+    /// Address (hostname:port or ip:port) of the server to connect the tunnel
     #[arg(long)]
-    pub server: SocketAddr,
+    pub server: String,
 
     /// Name to identify the tunnel on the server
     #[arg(long)]

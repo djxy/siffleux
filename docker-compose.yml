@@ -10,18 +10,7 @@ services:
   tcp-client:
     build:
       dockerfile: ./Dockerfile
-    command: --verbose client --server 127.0.0.1:8765 --cert-hash HQ1Xn8z2BcyP6vwiZ1bOEwvUZP8BVI7Eki-qCIQj-NQ= tcp --ingress-id tcp-test --auth-key test --target 192.168.0.164:5201
-    ulimits:
-      memlock:
-        soft: -1
-        hard: -1
-      core: -1
-    sysctls:
-      - net.ipv4.ip_local_port_range=1024 65535
-      - net.ipv4.tcp_tw_reuse=1
-      - net.ipv4.tcp_fin_timeout=15
-      - net.ipv4.tcp_timestamps=1
-      - net.ipv4.tcp_max_tw_buckets=2000000
+    command: --verbose client --server server:8765 --cert-hash HQ1Xn8z2BcyP6vwiZ1bOEwvUZP8BVI7Eki-qCIQj-NQ= tcp --ingress-id tcp-test --auth-key test --target 192.168.0.164:5201
   # end-client:
   #   build:
   #     dockerfile: ./Dockerfile

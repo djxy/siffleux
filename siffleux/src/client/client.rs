@@ -1,11 +1,14 @@
 use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
+    net::{SocketAddr, UdpSocket},
     sync::Arc,
 };
 
-use quinn::{ClientConfig, Endpoint, TransportConfig, crypto::rustls::QuicClientConfig};
+use quinn::{
+    ClientConfig, Endpoint, TransportConfig,
+    crypto::rustls::QuicClientConfig,
+    udp::{UdpSockRef, UdpSocketState},
+};
 use socket2::{Domain, Protocol, Socket, Type};
-use tokio::net::lookup_host;
 use tracing::info;
 
 use crate::{
@@ -71,32 +74,20 @@ impl Client {
 
         client_config.transport_config(Arc::new(transport_config));
 
-        // TODO: Change how the lookup_host is passed. Currently it is for the docker compose
-        info!("Lookup server");
-        let mut addresses = lookup_host("server:8765").await?;
-        info!("Lookup serve done");
-
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
 
-        // TODO: Review those parameters. I just increased them without any meaning
         socket.set_send_buffer_size(8 * 1024 * 1024)?;
         socket.set_recv_buffer_size(8 * 1024 * 1024)?;
         socket.set_reuse_address(true)?;
-        socket.bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0).into())?;
+        socket.set_nonblocking(true)?;
 
-        if let Ok(actual_send) = socket.send_buffer_size() {
-            info!("Kernel Send Buffer Size: {} bytes", actual_send);
-        }
+        let udp_state = UdpSocketState::new(UdpSockRef::from(&socket))?;
 
-        if let Ok(actual_recv) = socket.recv_buffer_size() {
-            info!("Kernel Receive Buffer Size: {} bytes", actual_recv);
-        }
+        info!("Max GSO segments: {}", udp_state.max_gso_segments());
+        info!("GRO segments:     {}", udp_state.gro_segments());
+        info!("May fragment:     {}", udp_state.may_fragment());
 
         let std_socket: UdpSocket = socket.into();
-
-        std_socket.set_nonblocking(true)?;
-
-        // let endpoint = Endpoint::client(SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 0))?;
 
         let endpoint = quinn::Endpoint::new(
             quinn::EndpointConfig::default(),
@@ -107,7 +98,7 @@ impl Client {
 
         let tunnel = handle_client_protocol_v1_auth(
             endpoint
-                .connect_with(client_config, addresses.next().unwrap(), &server_name)?
+                .connect_with(client_config, server_address, &server_name)?
                 .await?,
             auth_key,
             ingress_id.clone(),
