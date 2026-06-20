@@ -3,11 +3,8 @@ use std::{
     sync::Arc,
 };
 
-use quinn::{
-    ClientConfig, Endpoint, TransportConfig,
-    crypto::rustls::QuicClientConfig,
-    udp::{UdpSockRef, UdpSocketState},
-};
+use quinn::{ClientConfig, Endpoint, TransportConfig, crypto::rustls::QuicClientConfig};
+use quinn_udp::{UdpSockRef, UdpSocketState};
 use socket2::{Domain, Protocol, Socket, Type};
 use tracing::info;
 
@@ -65,7 +62,7 @@ impl Client {
         // TODO: Review those parameters. I just increased them without any meaning
         transport_config.send_window(256 * 1024 * 1024);
         transport_config.receive_window((256 * 1024 * 1024u32).into());
-        transport_config.stream_receive_window((64 * 1024 * 1024u32).into());
+        transport_config.stream_receive_window((2 * 1024 * 1024u32).into());
 
         transport_config.max_concurrent_bidi_streams(1000u32.into());
 
@@ -80,12 +77,21 @@ impl Client {
         socket.set_recv_buffer_size(8 * 1024 * 1024)?;
         socket.set_reuse_address(true)?;
         socket.set_nonblocking(true)?;
+        socket.bind(&"0.0.0.0:0".parse::<SocketAddr>().unwrap().into())?;
 
         let udp_state = UdpSocketState::new(UdpSockRef::from(&socket))?;
+
+        // unsafe {
+        //     udp_state.set_apple_fast_path();
+        // }
 
         info!("Max GSO segments: {}", udp_state.max_gso_segments());
         info!("GRO segments:     {}", udp_state.gro_segments());
         info!("May fragment:     {}", udp_state.may_fragment());
+        // info!(
+        //     "May fragment:     {}",
+        //     udp_state.is_apple_fast_path_enabled()
+        // );
 
         let std_socket: UdpSocket = socket.into();
 

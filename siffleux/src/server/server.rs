@@ -6,8 +6,8 @@ use crate::server::protocols::v1::{
     handle_server_protocol_v1_auth, handle_server_protocol_v1_command_stream,
 };
 use crate::{Error, frames};
-use quinn::udp::{UdpSockRef, UdpSocketState};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
+use quinn_udp::{UdpSockRef, UdpSocketState};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::HashMap;
@@ -50,7 +50,7 @@ impl Server {
         // TODO: Review those parameters. I just increased them without any meaning
         transport_config.send_window(256 * 1024 * 1024);
         transport_config.receive_window((256 * 1024 * 1024u32).into());
-        transport_config.stream_receive_window((64 * 1024 * 1024u32).into());
+        transport_config.stream_receive_window((2 * 1024 * 1024u32).into());
 
         transport_config.max_concurrent_bidi_streams(1000u32.into());
 
@@ -121,9 +121,17 @@ impl Server {
 
             let udp_state = UdpSocketState::new(UdpSockRef::from(&socket))?;
 
+            // unsafe {
+            //     udp_state.set_apple_fast_path();
+            // }
+
             info!("Max GSO segments: {}", udp_state.max_gso_segments());
             info!("GRO segments:     {}", udp_state.gro_segments());
             info!("May fragment:     {}", udp_state.may_fragment());
+            // info!(
+            //     "May fragment:     {}",
+            //     udp_state.is_apple_fast_path_enabled()
+            // );
 
             let std_socket: UdpSocket = socket.into();
 
