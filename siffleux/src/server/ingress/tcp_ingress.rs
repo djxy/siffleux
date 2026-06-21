@@ -158,6 +158,8 @@ impl TcpIngress {
         tcp_stream: TcpStream,
         tcp_listener_cancellation_token: CancellationToken,
     ) -> Result<(), Error> {
+        tcp_stream.set_nodelay(true).unwrap();
+
         let tcp_remote_addr = tcp_stream.peer_addr()?;
         let (tcp_read_stream, tcp_write_stream): (OwnedReadHalf, OwnedWriteHalf) =
             tcp_stream.into_split();

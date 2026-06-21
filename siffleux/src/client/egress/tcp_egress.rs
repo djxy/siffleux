@@ -96,7 +96,11 @@ impl TcpEgress {
 
             let (tcp_remote_addr, (tcp_read_stream, tcp_write_stream)) =
                 match tcp_socket.connect(self_clone.inner.target_addr).await {
-                    Ok(tcp_stream) => (tcp_stream.peer_addr().unwrap(), tcp_stream.into_split()),
+                    Ok(tcp_stream) => {
+                        tcp_stream.set_nodelay(true).unwrap();
+
+                        (tcp_stream.peer_addr().unwrap(), tcp_stream.into_split())
+                    }
                     Err(e) => {
                         error!(
                             "Error opening tcp connection to target={}: {e}",
