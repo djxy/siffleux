@@ -7,11 +7,9 @@ use crate::server::protocols::v1::{
 };
 use crate::{Error, frames};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
-use quinn_udp::{UdpSockRef, UdpSocketState};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
-use socket2::{Domain, Protocol, Socket, Type};
 use std::collections::HashMap;
-use std::net::{SocketAddr, UdpSocket};
+use std::net::SocketAddr;
 use std::sync::atomic::AtomicU64;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
@@ -47,7 +45,6 @@ impl Server {
         transport_config.keep_alive_interval(Some(Duration::from_secs(5)));
         transport_config.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
 
-        // TODO: Review those parameters. I just increased them without any meaning
         transport_config.send_window(256 * 1024 * 1024);
         transport_config.receive_window((256 * 1024 * 1024u32).into());
         transport_config.stream_receive_window((2 * 1024 * 1024u32).into());
@@ -111,36 +108,7 @@ impl Server {
 
             info!("Starting listening for tunnels...");
 
-            let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-
-            socket.set_send_buffer_size(8 * 1024 * 1024)?;
-            socket.set_recv_buffer_size(8 * 1024 * 1024)?;
-            socket.set_reuse_address(true)?;
-            socket.set_nonblocking(true)?;
-            socket.bind(&socket_addr.into())?;
-
-            let udp_state = UdpSocketState::new(UdpSockRef::from(&socket))?;
-
-            // unsafe {
-            //     udp_state.set_apple_fast_path();
-            // }
-
-            info!("Max GSO segments: {}", udp_state.max_gso_segments());
-            info!("GRO segments:     {}", udp_state.gro_segments());
-            info!("May fragment:     {}", udp_state.may_fragment());
-            // info!(
-            //     "May fragment:     {}",
-            //     udp_state.is_apple_fast_path_enabled()
-            // );
-
-            let std_socket: UdpSocket = socket.into();
-
-            let endpoint = quinn::Endpoint::new(
-                quinn::EndpointConfig::default(),
-                Some(self.inner.server_config.clone()),
-                std_socket,
-                Arc::new(quinn::TokioRuntime),
-            )?;
+            let endpoint = Endpoint::server(self.inner.server_config.clone(), socket_addr)?;
 
             *endpoint_guard = Some(endpoint.clone());
             endpoint

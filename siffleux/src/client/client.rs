@@ -1,4 +1,7 @@
-use std::{net::SocketAddr, sync::Arc};
+use std::{
+    net::{Ipv4Addr, SocketAddr},
+    sync::Arc,
+};
 
 use quinn::{ClientConfig, Endpoint, TransportConfig, crypto::rustls::QuicClientConfig};
 use tracing::info;
@@ -54,7 +57,6 @@ impl Client {
 
         let mut transport_config = TransportConfig::default();
 
-        // TODO: Review those parameters. I just increased them without any meaning
         transport_config.send_window(256 * 1024 * 1024);
         transport_config.receive_window((256 * 1024 * 1024u32).into());
         transport_config.stream_receive_window((2 * 1024 * 1024u32).into());
@@ -66,7 +68,7 @@ impl Client {
 
         client_config.transport_config(Arc::new(transport_config));
 
-        let endpoint = Endpoint::client("0.0.0.0:0".parse::<SocketAddr>().unwrap().into())?;
+        let endpoint = Endpoint::client(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0))?;
 
         let tunnel = handle_client_protocol_v1_auth(
             endpoint
