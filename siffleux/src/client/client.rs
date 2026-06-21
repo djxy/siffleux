@@ -1,11 +1,6 @@
-use std::{
-    net::{SocketAddr, UdpSocket},
-    sync::Arc,
-};
+use std::{net::SocketAddr, sync::Arc};
 
 use quinn::{ClientConfig, Endpoint, TransportConfig, crypto::rustls::QuicClientConfig};
-use quinn_udp::{UdpSockRef, UdpSocketState};
-use socket2::{Domain, Protocol, Socket, Type};
 use tracing::info;
 
 use crate::{
@@ -71,36 +66,7 @@ impl Client {
 
         client_config.transport_config(Arc::new(transport_config));
 
-        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-
-        socket.set_send_buffer_size(8 * 1024 * 1024)?;
-        socket.set_recv_buffer_size(8 * 1024 * 1024)?;
-        socket.set_reuse_address(true)?;
-        socket.set_nonblocking(true)?;
-        socket.bind(&"0.0.0.0:0".parse::<SocketAddr>().unwrap().into())?;
-
-        let udp_state = UdpSocketState::new(UdpSockRef::from(&socket))?;
-
-        // unsafe {
-        //     udp_state.set_apple_fast_path();
-        // }
-
-        info!("Max GSO segments: {}", udp_state.max_gso_segments());
-        info!("GRO segments:     {}", udp_state.gro_segments());
-        info!("May fragment:     {}", udp_state.may_fragment());
-        // info!(
-        //     "May fragment:     {}",
-        //     udp_state.is_apple_fast_path_enabled()
-        // );
-
-        let std_socket: UdpSocket = socket.into();
-
-        let endpoint = quinn::Endpoint::new(
-            quinn::EndpointConfig::default(),
-            None,
-            std_socket,
-            Arc::new(quinn::TokioRuntime),
-        )?;
+        let endpoint = Endpoint::client("0.0.0.0:0".parse::<SocketAddr>().unwrap().into())?;
 
         let tunnel = handle_client_protocol_v1_auth(
             endpoint
