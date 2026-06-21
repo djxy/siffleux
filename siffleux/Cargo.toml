@@ -8,8 +8,6 @@ rustls = { workspace = true }
 tokio = { workspace = true }
 tracing = { workspace = true }
 getrandom = { workspace = true }
-quinn = { git = "https://github.com/quinn-rs/quinn", branch = "main" }
-quinn-udp = { git = "https://github.com/quinn-rs/quinn", branch = "main", features = ["fast-apple-datapath"] }
 rcgen = "0.14.8"
 thiserror = "2.0.18"
 async-trait = "0.1.89"
@@ -18,7 +16,7 @@ tokio-util = { version = "0.7.18", features = ["codec", "io"] }
 argon2 = "0.5.3"
 sha2 = "0.11.0"
 futures-util = { version = "0.3.32", features = ["sink"] }
-socket2 = "0.6.4"
+quinn = "0.11.9"
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }
