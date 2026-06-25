@@ -43,7 +43,7 @@ impl Client {
         server_address: SocketAddr,
         server_name: String,
         certificate_hash: Vec<u8>,
-    ) -> Result<(Tunnel, Endpoint), Error> {
+    ) -> Result<Tunnel, Error> {
         let mut tls_config = rustls::ClientConfig::builder()
             .dangerous()
             .with_custom_certificate_verifier(Arc::new(CertificateHashVerifier::new(
@@ -68,10 +68,8 @@ impl Client {
 
         client_config.transport_config(Arc::new(transport_config));
 
-        let endpoint = Endpoint::client(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0))?;
-
         let tunnel = handle_client_protocol_v1_auth(
-            endpoint
+            Endpoint::client(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0))?
                 .connect_with(client_config, server_address, &server_name)?
                 .await?,
             auth_key,
@@ -83,6 +81,6 @@ impl Client {
 
         info!(server = %server_address, ingress_id = %ingress_id, "Connected to server.");
 
-        Ok((tunnel, endpoint))
+        Ok(tunnel)
     }
 }

@@ -20,6 +20,7 @@ pub struct TcpIngress {
 struct TcpIngressInner {
     id: IngressId,
     hashed_auth_key: HashedAuthKey,
+    /// Socket address the TCP ingress will listen for TCP connections
     socket_addr: SocketAddr,
     tunnels: RwLock<Vec<Tunnel>>,
     tcp_listener: tokio::sync::Mutex<Option<Arc<TcpListener>>>,

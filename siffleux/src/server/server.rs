@@ -23,16 +23,18 @@ pub struct Server {
 
 pub(in crate::server) struct ServerInner {
     endpoint: Mutex<Option<Endpoint>>,
-    server_config: ServerConfig,
+    quinn_server_config: ServerConfig,
     pub ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
     pub tunnel_id_counter: AtomicU64,
     byte_counter: ByteCounter,
+    certificate_hash: Vec<u8>,
 }
 
 impl Server {
     pub fn new_with_certificate(
         certificate_der: CertificateDer<'static>,
         private_key: PrivatePkcs8KeyDer<'static>,
+        certificate_hash: Vec<u8>,
     ) -> Result<Server, Error> {
         let mut tls_config = rustls::ServerConfig::builder()
             .with_no_client_auth()
@@ -57,31 +59,24 @@ impl Server {
 
         server_config.transport_config(Arc::new(transport_config));
 
-        Ok(Server::new(server_config))
+        Ok(Server::new(server_config, certificate_hash))
     }
 
-    fn new(server_config: ServerConfig) -> Server {
+    fn new(server_config: ServerConfig, certificate_hash: Vec<u8>) -> Server {
         Server {
             inner: Arc::new(ServerInner {
                 endpoint: Mutex::new(None),
                 ingress_by_id: RwLock::new(HashMap::new()),
                 tunnel_id_counter: AtomicU64::new(0),
-                server_config,
+                quinn_server_config: server_config,
                 byte_counter: ByteCounter::new(None),
+                certificate_hash,
             }),
         }
     }
 
-    pub fn assign_ingress(&self, ingress: Box<dyn Ingress>) -> Result<(), Error> {
-        let mut ingress_by_id = self.inner.ingress_by_id.write()?;
-
-        if ingress_by_id.contains_key(&ingress.id()) {
-            return Err(Error::IngressIDAlreadyAssigned(ingress.id().clone()));
-        }
-
-        ingress_by_id.insert(ingress.id().clone(), ingress);
-
-        Ok(())
+    pub fn certificate_hash(&self) -> &Vec<u8> {
+        &self.inner.certificate_hash
     }
 
     pub fn byte_counter(&self) -> &ByteCounter {
@@ -98,6 +93,18 @@ impl Server {
             .map_err(Error::from)
     }
 
+    pub fn assign_ingress(&self, ingress: Box<dyn Ingress>) -> Result<(), Error> {
+        let mut ingress_by_id = self.inner.ingress_by_id.write()?;
+
+        if ingress_by_id.contains_key(&ingress.id()) {
+            return Err(Error::IngressIDAlreadyAssigned(ingress.id().clone()));
+        }
+
+        ingress_by_id.insert(ingress.id().clone(), ingress);
+
+        Ok(())
+    }
+
     pub async fn listen(&self, socket_addr: SocketAddr) -> Result<(), Error> {
         let endpoint = {
             let mut endpoint_guard = self.inner.endpoint.lock()?;
@@ -108,7 +115,7 @@ impl Server {
 
             info!("Starting listening for tunnels...");
 
-            let endpoint = Endpoint::server(self.inner.server_config.clone(), socket_addr)?;
+            let endpoint = Endpoint::server(self.inner.quinn_server_config.clone(), socket_addr)?;
 
             *endpoint_guard = Some(endpoint.clone());
             endpoint

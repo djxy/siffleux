@@ -96,7 +96,8 @@ async fn test_detect_tunnel_closed() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -109,7 +110,7 @@ async fn test_detect_tunnel_closed() {
 
     let client = Client::new();
 
-    let (tunnel, _) = client
+    let tunnel = client
         .connect_tunnel_with_certificate_hash(
             auth_key,
             ingress_id.clone(),
@@ -144,7 +145,8 @@ async fn test_send_data_over_stream() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -157,7 +159,7 @@ async fn test_send_data_over_stream() {
 
     let client = Client::new();
 
-    let (tunnel, _) = client
+    let tunnel = client
         .connect_tunnel_with_certificate_hash(
             auth_key,
             ingress_id.clone(),
@@ -207,7 +209,8 @@ async fn test_multiple_handshake_v1_successful() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -223,7 +226,7 @@ async fn test_multiple_handshake_v1_successful() {
 
         let client = Client::new();
 
-        let (tunnel, _) = client
+        let tunnel = client
             .connect_tunnel_with_certificate_hash(
                 auth_key.clone(),
                 ingress_id.clone(),
@@ -257,7 +260,8 @@ async fn test_multiple_handshake_v1_successful() {
 async fn test_handshake_v1_rejected_ingress_id() {
     let (cert_der, key, cert_hash) = init();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -290,7 +294,8 @@ async fn test_handshake_v1_rejected_auth_key() {
     let (cert_der, key, cert_hash) = init();
     let ingress_id = IngressId::try_from("iii").unwrap();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -332,7 +337,8 @@ async fn test_connection_with_certificate_hash() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -365,11 +371,12 @@ async fn test_connection_with_certificate_hash() {
 
 #[tokio::test]
 async fn test_connection_with_wrong_certificate_hash() {
-    let (cert_der, key, _) = init();
+    let (cert_der, key, cert_hash) = init();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))

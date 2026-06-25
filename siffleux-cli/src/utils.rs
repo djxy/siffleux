@@ -14,6 +14,8 @@ use tracing::info;
 pub const BASE64_ENGINE: engine::GeneralPurpose =
     engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::PAD);
 
+pub const CERT_SUBJECT_ALT_NAME: &'static str = "self-host.siffleux.dev";
+
 const SIFFLEUX_CERT_FILE: &'static str = "siffleux-cert.pem";
 const SIFFLEUX_KEY_FILE: &'static str = "siffleux-key.pem";
 

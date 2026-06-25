@@ -10,7 +10,7 @@ services:
   tcp-client:
     build:
       dockerfile: ./Dockerfile
-    command: --verbose client --server server:8765 --cert-hash HQ1Xn8z2BcyP6vwiZ1bOEwvUZP8BVI7Eki-qCIQj-NQ= tcp --ingress-id tcp-test --auth-key test --target 192.168.0.164:5201
+    command: --verbose client --server server:8765 --cert-hash HQ1Xn8z2BcyP6vwiZ1bOEwvUZP8BVI7Eki-qCIQj-NQ= tcp --ingress-id tcp-test --auth-key test --target 192.168.2.46:5201
   # end-client:
   #   build:
   #     dockerfile: ./Dockerfile

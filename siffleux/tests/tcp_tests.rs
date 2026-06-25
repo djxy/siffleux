@@ -52,7 +52,8 @@ async fn test_send_and_receive_data() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("111").unwrap();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -75,7 +76,7 @@ async fn test_send_and_receive_data() {
 
     let client = Client::new();
 
-    let (tunnel, _) = client
+    let tunnel = client
         .connect_tunnel_with_certificate_hash(
             auth_key.clone(),
             ingress_id.clone(),
@@ -134,7 +135,8 @@ async fn test_target_tcp_write_dropped() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -157,7 +159,7 @@ async fn test_target_tcp_write_dropped() {
 
     let client = Client::new();
 
-    let (tunnel, _) = client
+    let tunnel = client
         .connect_tunnel_with_certificate_hash(
             auth_key.clone(),
             ingress_id.clone(),
@@ -205,7 +207,8 @@ async fn test_origin_tcp_write_dropped() {
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server = Server::new_with_certificate(cert_der.clone(), key.clone_key()).unwrap();
+    let server =
+        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -228,7 +231,7 @@ async fn test_origin_tcp_write_dropped() {
 
     let client = Client::new();
 
-    let (tunnel, _) = client
+    let tunnel = client
         .connect_tunnel_with_certificate_hash(
             auth_key.clone(),
             ingress_id.clone(),
