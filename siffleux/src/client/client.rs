@@ -3,6 +3,7 @@ use std::{
     sync::Arc,
 };
 
+use parking_lot::RwLock;
 use quinn::{ClientConfig, Endpoint, TransportConfig, crypto::rustls::QuicClientConfig};
 use tracing::info;
 
@@ -23,6 +24,7 @@ pub struct Client {
 
 #[derive(Debug)]
 struct ClientInner {
+    tunnels: RwLock<Vec<Tunnel>>,
     byte_counter: ByteCounter,
 }
 
@@ -30,6 +32,7 @@ impl Client {
     pub fn new() -> Self {
         Client {
             inner: Arc::new(ClientInner {
+                tunnels: RwLock::new(Vec::new()),
                 byte_counter: ByteCounter::new(None),
             }),
         }
@@ -79,8 +82,14 @@ impl Client {
         )
         .await?;
 
+        self.inner.tunnels.write().push(tunnel.clone());
+
         info!(server = %server_address, ingress_id = %ingress_id, "Connected to server.");
 
         Ok(tunnel)
+    }
+
+    pub fn tunnels(&self) -> Vec<Tunnel> {
+        self.inner.tunnels.read().clone()
     }
 }

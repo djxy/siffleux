@@ -68,7 +68,7 @@ async fn test_send_and_receive_data() {
 
     tcp_ingress.start().await.unwrap();
 
-    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr().unwrap() else {
+    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr() else {
         panic!("Shouldn't reach!!");
     };
 
@@ -151,7 +151,7 @@ async fn test_target_tcp_write_dropped() {
 
     tcp_ingress.start().await.unwrap();
 
-    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr().unwrap() else {
+    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr() else {
         panic!("Shouldn't reach!!");
     };
 
@@ -223,7 +223,7 @@ async fn test_origin_tcp_write_dropped() {
 
     tcp_ingress.start().await.unwrap();
 
-    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr().unwrap() else {
+    let Some(tcp_ingress_socket_addr) = tcp_ingress.socket_addr() else {
         panic!("Shouldn't reach!!");
     };
 

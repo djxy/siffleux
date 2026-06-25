@@ -1,13 +1,14 @@
-use quinn::{Connection, RecvStream, SendStream};
+use quinn::{Connection, RecvStream, SendStream, VarInt};
 use std::sync::Arc;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tokio_util::io::{InspectReader, InspectWriter};
+use uuid::Uuid;
 
-use crate::Error;
 use crate::code::CONNECTION_EOF;
 use crate::common::byte_counter::ByteCounter;
-use crate::common::{IngressId, TunnelId, TunnelName};
+use crate::common::{IngressId, TunnelName};
 use crate::frames::v1::CodecV1;
+use crate::{Error, ServerId};
 
 #[derive(Clone, Debug)]
 pub struct Tunnel {
@@ -16,8 +17,9 @@ pub struct Tunnel {
 
 #[derive(Debug)]
 struct TunnelInner {
+    id: Uuid,
+    server_id: ServerId,
     connection: Connection,
-    id: TunnelId,
     name: TunnelName,
     ingress_id: IngressId,
     byte_counter: ByteCounter,
@@ -25,7 +27,8 @@ struct TunnelInner {
 
 impl Tunnel {
     pub fn new(
-        id: TunnelId,
+        id: Uuid,
+        server_id: ServerId,
         name: TunnelName,
         ingress_id: IngressId,
         connection: Connection,
@@ -33,8 +36,9 @@ impl Tunnel {
     ) -> Self {
         Self {
             inner: Arc::new(TunnelInner {
-                connection,
                 id,
+                server_id,
+                connection,
                 name,
                 ingress_id,
                 byte_counter: ByteCounter::new(parent_byte_counter),
@@ -42,8 +46,12 @@ impl Tunnel {
         }
     }
 
-    pub fn id(&self) -> TunnelId {
+    pub fn id(&self) -> Uuid {
         self.inner.id
+    }
+
+    pub fn server_id(&self) -> &ServerId {
+        &self.inner.server_id
     }
 
     pub fn name(&self) -> &TunnelName {
@@ -62,17 +70,17 @@ impl Tunnel {
         self.inner.connection.close_reason().is_some()
     }
 
-    pub fn connection(&self) -> &Connection {
-        &self.inner.connection
-    }
-
     pub async fn closed(&self) {
         self.inner.connection.closed().await;
     }
 
-    pub async fn close(&self) {
-        self.inner.connection.close(CONNECTION_EOF, b"done");
+    pub async fn close_with_reason(&self, code: VarInt, reason: &[u8]) {
+        self.inner.connection.close(code, reason);
         self.inner.connection.closed().await;
+    }
+
+    pub async fn close(&self) {
+        self.close_with_reason(CONNECTION_EOF, b"done").await;
     }
 
     pub async fn create_stream(

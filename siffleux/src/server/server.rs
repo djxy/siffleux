@@ -1,4 +1,3 @@
-use crate::Ingress;
 use crate::code::{UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON};
 use crate::common::{ByteCounter, IngressId};
 use crate::frames::v1::CodecV1;
@@ -6,32 +5,34 @@ use crate::server::protocols::v1::{
     handle_server_protocol_v1_auth, handle_server_protocol_v1_command_stream,
 };
 use crate::{Error, frames};
+use crate::{Ingress, ServerId};
+use parking_lot::{Mutex, RwLock};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
 use std::net::SocketAddr;
-use std::sync::atomic::AtomicU64;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{error, info};
 
 #[derive(Clone)]
 pub struct Server {
-    pub(in crate::server) inner: Arc<ServerInner>,
+    inner: Arc<ServerInner>,
 }
 
-pub(in crate::server) struct ServerInner {
+struct ServerInner {
+    id: ServerId,
     endpoint: Mutex<Option<Endpoint>>,
     quinn_server_config: ServerConfig,
-    pub ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
-    pub tunnel_id_counter: AtomicU64,
+    ingress_by_id: RwLock<HashMap<IngressId, Box<dyn Ingress>>>,
     byte_counter: ByteCounter,
     certificate_hash: Vec<u8>,
 }
 
 impl Server {
     pub fn new_with_certificate(
+        id: ServerId,
         certificate_der: CertificateDer<'static>,
         private_key: PrivatePkcs8KeyDer<'static>,
         certificate_hash: Vec<u8>,
@@ -59,20 +60,24 @@ impl Server {
 
         server_config.transport_config(Arc::new(transport_config));
 
-        Ok(Server::new(server_config, certificate_hash))
+        Ok(Server::new(id, server_config, certificate_hash))
     }
 
-    fn new(server_config: ServerConfig, certificate_hash: Vec<u8>) -> Server {
+    fn new(id: ServerId, server_config: ServerConfig, certificate_hash: Vec<u8>) -> Server {
         Server {
             inner: Arc::new(ServerInner {
+                id,
                 endpoint: Mutex::new(None),
                 ingress_by_id: RwLock::new(HashMap::new()),
-                tunnel_id_counter: AtomicU64::new(0),
                 quinn_server_config: server_config,
                 byte_counter: ByteCounter::new(None),
                 certificate_hash,
             }),
         }
+    }
+
+    pub fn id(&self) -> &ServerId {
+        &self.inner.id
     }
 
     pub fn certificate_hash(&self) -> &Vec<u8> {
@@ -83,18 +88,16 @@ impl Server {
         &self.inner.byte_counter
     }
 
-    pub fn address(&self) -> Result<SocketAddr, Error> {
+    pub fn address(&self) -> Option<SocketAddr> {
         self.inner
             .endpoint
-            .lock()?
+            .lock()
             .as_ref()
-            .ok_or(Error::ServerNotListening)?
-            .local_addr()
-            .map_err(Error::from)
+            .map_or(None, |e| Some(e.local_addr().unwrap()))
     }
 
     pub fn assign_ingress(&self, ingress: Box<dyn Ingress>) -> Result<(), Error> {
-        let mut ingress_by_id = self.inner.ingress_by_id.write()?;
+        let mut ingress_by_id = self.inner.ingress_by_id.write();
 
         if ingress_by_id.contains_key(&ingress.id()) {
             return Err(Error::IngressIDAlreadyAssigned(ingress.id().clone()));
@@ -105,9 +108,13 @@ impl Server {
         Ok(())
     }
 
+    pub fn get_ingress_by_id(&self, ingress_id: &IngressId) -> Option<Box<dyn Ingress>> {
+        self.inner.ingress_by_id.read().get(ingress_id).cloned()
+    }
+
     pub async fn listen(&self, socket_addr: SocketAddr) -> Result<(), Error> {
         let endpoint = {
-            let mut endpoint_guard = self.inner.endpoint.lock()?;
+            let mut endpoint_guard = self.inner.endpoint.lock();
 
             if endpoint_guard.is_some() {
                 return Err(Error::ServerAlreadyListening);
@@ -135,7 +142,7 @@ impl Server {
     }
 
     pub async fn stop(&self) -> Result<(), Error> {
-        if let Some(endpoint) = self.inner.endpoint.lock()?.take() {
+        if let Some(endpoint) = self.inner.endpoint.lock().take() {
             info!("Closing server...");
             endpoint.close(VarInt::from_u32(0), b"done");
             endpoint.wait_idle().await;
@@ -191,8 +198,8 @@ impl Server {
                     .await
                     {
                         tunnel
-                            .connection()
-                            .close(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON);
+                            .close_with_reason(UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON)
+                            .await;
 
                         error!(tunnel_id = %&tunnel.id(), "Tunnel closed. Error with command stream: {e}");
                     } else {

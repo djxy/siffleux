@@ -1,7 +1,8 @@
 use async_trait::async_trait;
+use parking_lot::{Mutex, RwLock};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
@@ -44,21 +45,21 @@ impl Ingress for TcpIngress {
 
         info!(
             ingress_id = %self.id(),
-            tunnel_id = %tunnel.id(),
+            tunnel_id = %&tunnel.id(),
             "Assigned tunnel to TCP ingress."
         );
 
         tokio::spawn(async move {
             tunnel_clone.closed().await;
 
-            let mut tunnels = self_clone.inner.tunnels.write().unwrap();
+            let mut tunnels = self_clone.inner.tunnels.write();
 
             if let Some(i) = tunnels.iter().position(|t| t.id() == tunnel_clone.id()) {
                 tunnels.swap_remove(i);
             }
         });
 
-        self.inner.tunnels.write()?.push(tunnel);
+        self.inner.tunnels.write().push(tunnel);
 
         Ok(())
     }
@@ -76,7 +77,7 @@ impl Ingress for TcpIngress {
             let tcp_listener_arc = Arc::new(TcpListener::bind(self.inner.socket_addr).await?);
 
             {
-                let mut tcp_listener_socket_addr = self.inner.tcp_listener_socket_addr.lock()?;
+                let mut tcp_listener_socket_addr = self.inner.tcp_listener_socket_addr.lock();
 
                 *tcp_listener_socket_addr = Some(tcp_listener_arc.local_addr()?.clone());
             }
@@ -121,8 +122,8 @@ impl TcpIngress {
         }
     }
 
-    pub fn socket_addr(&self) -> Result<Option<SocketAddr>, Error> {
-        Ok(*self.inner.tcp_listener_socket_addr.lock()?)
+    pub fn socket_addr(&self) -> Option<SocketAddr> {
+        self.inner.tcp_listener_socket_addr.lock().clone()
     }
 
     async fn handle_listener(&self, tcp_listener: Arc<TcpListener>) -> Result<(), Error> {
@@ -165,7 +166,7 @@ impl TcpIngress {
         let (tcp_read_stream, tcp_write_stream): (OwnedReadHalf, OwnedWriteHalf) =
             tcp_stream.into_split();
 
-        let Ok(Some(tunnel)) = self.get_tunnel_to_connect() else {
+        let Some(tunnel) = self.get_tunnel_to_connect() else {
             return Err(Error::IngressNoTunnelConnected);
         };
 
@@ -187,20 +188,20 @@ impl TcpIngress {
         Ok(())
     }
 
-    fn get_tunnel_to_connect(&self) -> Result<Option<Tunnel>, Error> {
-        let tunnels = self.inner.tunnels.read()?;
+    fn get_tunnel_to_connect(&self) -> Option<Tunnel> {
+        let tunnels = self.inner.tunnels.read();
 
         if tunnels.is_empty() {
-            return Ok(None);
+            return None;
         }
 
         if tunnels.len() == 1 {
-            return Ok(Some(tunnels[0].clone()));
+            return Some(tunnels[0].clone());
         }
 
-        Ok(Some(
+        Some(
             tunnels[self.inner.tunnel_rotation.fetch_add(1, Ordering::Relaxed) % tunnels.len()]
                 .clone(),
-        ))
+        )
     }
 }

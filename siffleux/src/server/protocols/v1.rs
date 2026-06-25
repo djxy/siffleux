@@ -1,10 +1,11 @@
-use std::{sync::atomic::Ordering, time::Duration};
+use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use quinn::{Connection, RecvStream, SendStream};
 use tokio::time::sleep;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{debug, warn};
+use uuid::Uuid;
 
 use crate::{
     Error, Ingress, Server, Tunnel,
@@ -12,7 +13,6 @@ use crate::{
         FRAME_NOT_RECEIVED_ON_TIME, REJECTED_AUTH_KEY, REJECTED_INGRESS_ID,
         UNEXPECTED_FRAME_RECEIVED, UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON,
     },
-    common::TunnelId,
     frames::v1::{CodecV1, FrameV1},
 };
 
@@ -28,13 +28,7 @@ pub async fn handle_server_protocol_v1_auth(
                 match frame_res {
                     Ok(frame) => match frame {
                         FrameV1::Auth { auth_key, ingress_id, tunnel_name} => {
-                            let Some(ingress) = server
-                                .inner
-                                .ingress_by_id
-                                .read()?
-                                .get(&ingress_id)
-                                .cloned()
-                            else {
+                            let Some(ingress) = server.get_ingress_by_id(&ingress_id) else {
                                 warn!(
                                     "Rejected ingress_id from tunnel_name={}.",
                                     tunnel_name,
@@ -56,12 +50,7 @@ pub async fn handle_server_protocol_v1_auth(
                                 return Err(Error::RejectedAuthKey);
                             }
 
-                            let tunnel_id = TunnelId::new(
-                                server
-                                    .inner
-                                    .tunnel_id_counter
-                                    .fetch_add(1, Ordering::SeqCst),
-                            );
+                            let tunnel_id = Uuid::now_v7();
 
                             debug!(
                                 "Assigned tunnel_id={} to tunnel_name={} on ingress_id={}",
@@ -71,11 +60,13 @@ pub async fn handle_server_protocol_v1_auth(
                             write_framed
                                 .send(FrameV1::Authenticated {
                                     tunnel_id,
+                                    server_id: server.id().clone()
                                 })
                                 .await?;
 
                             return Ok((ingress, Tunnel::new(
                                 tunnel_id,
+                                server.id().clone(),
                                 tunnel_name,
                                 ingress_id.clone(),
                                 connection.clone(),

@@ -1,9 +1,10 @@
 use bytes::{Buf, BufMut};
 use tokio_util::codec::{Decoder, Encoder};
+use uuid::Uuid;
 
 use crate::{
-    Error,
-    common::{AuthKey, IngressId, TunnelId, TunnelName},
+    Error, ServerId,
+    common::{AuthKey, IngressId, TunnelName},
 };
 
 pub const VERSION: &[u8] = b"siffleux/v1";
@@ -23,7 +24,8 @@ pub enum FrameV1 {
         tunnel_name: TunnelName,
     },
     Authenticated {
-        tunnel_id: TunnelId,
+        tunnel_id: Uuid,
+        server_id: ServerId,
     },
     TCPStream,
     Ping,
@@ -62,10 +64,23 @@ impl Encoder<FrameV1> for CodecV1 {
                 dst.put_u8(tunnel_name_str.len() as u8);
                 dst.put_slice(tunnel_name_str.as_bytes());
             }
-            FrameV1::Authenticated { tunnel_id } => {
-                dst.reserve(1 + 8);
+            FrameV1::Authenticated {
+                tunnel_id,
+                server_id,
+            } => {
+                let server_id_str = server_id.to_str();
+
+                let payload_length = (1 + server_id_str.len()) + 16;
+
+                dst.reserve(1 + 2 + payload_length);
+
                 dst.put_u8(AUTHENTICATED_TYPE);
-                dst.put_slice(&tunnel_id.to_bytes());
+                dst.put_u16(payload_length as u16);
+
+                dst.put_u8(server_id_str.len() as u8);
+                dst.put_slice(server_id_str.as_bytes());
+
+                dst.put_slice(tunnel_id.as_bytes());
             }
             FrameV1::Ping => {
                 dst.reserve(1);
@@ -123,15 +138,22 @@ impl Decoder for CodecV1 {
                 }));
             }
             AUTHENTICATED_TYPE => {
-                if src_len < 9 {
+                let payload_length = u16::from_be_bytes([src[1], src[2]]) as usize;
+
+                if src_len < 1 + 2 + payload_length {
                     return Ok(None);
                 }
 
-                src.advance(1);
+                src.advance(3);
 
-                let tunnel_id = TunnelId::new(src.get_u64());
+                let server_id_len = src.get_u8();
+                let server_id_bytes = src.split_to(server_id_len as usize);
+                let tunnel_id_bytes = src.split_to(16);
 
-                return Ok(Some(FrameV1::Authenticated { tunnel_id }));
+                return Ok(Some(FrameV1::Authenticated {
+                    server_id: ServerId::from_bytes(&server_id_bytes)?,
+                    tunnel_id: Uuid::from_slice(&tunnel_id_bytes)?,
+                }));
             }
             PING_TYPE => {
                 src.advance(1);

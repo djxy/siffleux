@@ -60,6 +60,9 @@ pub enum Error {
     #[error("Invalid ingress_id reason={reason}")]
     InvalidIngressId { reason: String },
 
+    #[error("Invalid server_id reason={reason}")]
+    InvalidServerId { reason: String },
+
     #[error("Invalid tunnel_name reason={reason}")]
     InvalidTunnelName { reason: String },
 
@@ -193,6 +196,14 @@ impl<T> From<PoisonError<T>> for Error {
     fn from(poison_error: PoisonError<T>) -> Self {
         match poison_error {
             _ => Error::PoisonLock(poison_error.to_string()),
+        }
+    }
+}
+
+impl From<uuid::Error> for Error {
+    fn from(uuid_err: uuid::Error) -> Self {
+        match uuid_err {
+            _ => Error::Unknown(uuid_err.into()),
         }
     }
 }

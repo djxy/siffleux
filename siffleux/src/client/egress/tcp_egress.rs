@@ -38,7 +38,7 @@ impl Egress for TcpEgress {
             {
                 debug!(
                     "Received tunnel stream from tunnel_id={} ingress_id={} on tcp_egress={}",
-                    self_clone.inner.tunnel.id(),
+                    self_clone.inner.tunnel.server_id(),
                     self_clone.inner.tunnel.ingress_id(),
                     self_clone.inner.target_addr
                 );

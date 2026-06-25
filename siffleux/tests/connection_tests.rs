@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use rustls::crypto::aws_lc_rs;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use siffleux::{
-    AuthKey, Client, Error, HashedAuthKey, IngressId, Server, Tunnel, TunnelId, TunnelName,
+    AuthKey, Client, Error, HashedAuthKey, IngressId, Server, Tunnel, ServerTunnelId, TunnelName,
     generate_self_signed_certificate,
 };
 use siffleux::{Ingress, IngressClone};
@@ -247,7 +247,7 @@ async fn test_multiple_handshake_v1_successful() {
 
         let server_tunnel = mock_ingress.inner.tunnels.lock().unwrap().pop().unwrap();
 
-        assert_eq!(TunnelId::new(i), server_tunnel.id());
+        assert_eq!(ServerTunnelId::new(i), server_tunnel.server_id());
         assert_eq!(ingress_id, server_tunnel.ingress_id().clone());
         assert_eq!(tunnel_name, server_tunnel.name().clone());
         assert_eq!(true, server_tunnel.is_closed());

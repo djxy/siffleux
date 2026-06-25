@@ -45,11 +45,12 @@ pub async fn handle_client_protocol_v1_auth(
             if let Some(frame_res) = frame_option {
                 match frame_res {
                     Ok(frame) => match frame {
-                        FrameV1::Authenticated { tunnel_id } => {
+                        FrameV1::Authenticated { server_id, tunnel_id } => {
                             debug!("Received authenticated frame for tunnel_name={tunnel_name}. Assigned tunnel_id={tunnel_id}");
 
                             let tunnel = Tunnel::new(
                                 tunnel_id,
+                                server_id,
                                 tunnel_name.clone(),
                                 ingress_id.clone(),
                                 connection.clone(),
@@ -103,7 +104,7 @@ pub fn handle_client_protocol_v1_command_stream(
 ) {
     tokio::spawn(async move {
         let connection_clone = connection.clone();
-        let tunnel_id = tunnel.id();
+        let tunnel_id = tunnel.server_id();
 
         let ping_delay = tokio::time::sleep_until(
             tokio::time::Instant::now() + Duration::from_secs(PING_INTERVAL_SEC),
