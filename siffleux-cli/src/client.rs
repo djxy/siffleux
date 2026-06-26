@@ -15,7 +15,6 @@ use crate::{
 
 pub async fn launch_client_with_egresses(egress_configs: Vec<EgressConfig>) {
     let client = Client::new();
-    let tunnels
 
     for egress_config in egress_configs {
         match egress_config {

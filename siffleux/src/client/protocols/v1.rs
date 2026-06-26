@@ -7,7 +7,7 @@ use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::debug;
 
 use crate::{
-    AuthKey, ByteCounter, Error, IngressId, Tunnel, TunnelName,
+    AuthKey, ByteCounter, Error, IngressId, Tunnel,
     code::{
         COMMAND_STREAM_CLOSED, FRAME_NOT_RECEIVED_ON_TIME, UNEXPECTED_FRAME_RECEIVED,
         UNKNOWN_ERROR, UNKNOWN_ERROR_CLIENT_REASON,
@@ -19,7 +19,6 @@ pub async fn handle_client_protocol_v1_auth(
     connection: Connection,
     auth_key: AuthKey,
     ingress_id: IngressId,
-    tunnel_name: TunnelName,
     client_byte_counter: &ByteCounter,
 ) -> Result<Tunnel, Error> {
     let (send_stream, recv_stream) = connection.open_bi().await?;
@@ -34,7 +33,6 @@ pub async fn handle_client_protocol_v1_auth(
         .send(FrameV1::Auth {
             auth_key: auth_key.clone(),
             ingress_id: ingress_id.clone(),
-            tunnel_name: tunnel_name.clone(),
         })
         .await?;
 
@@ -46,12 +44,11 @@ pub async fn handle_client_protocol_v1_auth(
                 match frame_res {
                     Ok(frame) => match frame {
                         FrameV1::Authenticated { server_id, tunnel_id } => {
-                            debug!("Received authenticated frame for tunnel_name={tunnel_name}. Assigned tunnel_id={tunnel_id}");
+                            debug!("Received authenticated frame. Assigned tunnel_id={tunnel_id}");
 
                             let tunnel = Tunnel::new(
                                 tunnel_id,
                                 server_id,
-                                tunnel_name.clone(),
                                 ingress_id.clone(),
                                 connection.clone(),
                                 Some(client_byte_counter.clone())

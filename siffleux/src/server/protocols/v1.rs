@@ -27,12 +27,9 @@ pub async fn handle_server_protocol_v1_auth(
             if let Some(frame_res) = frame_option {
                 match frame_res {
                     Ok(frame) => match frame {
-                        FrameV1::Auth { auth_key, ingress_id, tunnel_name} => {
+                        FrameV1::Auth { auth_key, ingress_id} => {
                             let Some(ingress) = server.get_ingress_by_id(&ingress_id) else {
-                                warn!(
-                                    "Rejected ingress_id from tunnel_name={}.",
-                                    tunnel_name,
-                                );
+                                warn!("ingress_id={ingress_id} doesn't exist.");
 
                                 connection.close(REJECTED_INGRESS_ID, b"rejected ingress id");
 
@@ -40,10 +37,7 @@ pub async fn handle_server_protocol_v1_auth(
                             };
 
                             if !ingress.hashed_auth_key().verify(&auth_key) {
-                                warn!(
-                                    "Rejected auth_key from tunnel_name={}.",
-                                    tunnel_name
-                                );
+                                warn!("Invalid auth key received.");
 
                                 connection.close(REJECTED_AUTH_KEY, b"rejected auth key");
 
@@ -52,10 +46,7 @@ pub async fn handle_server_protocol_v1_auth(
 
                             let tunnel_id = Uuid::now_v7();
 
-                            debug!(
-                                "Assigned tunnel_id={} to tunnel_name={} on ingress_id={}",
-                                tunnel_id, tunnel_name, ingress_id
-                            );
+                            debug!("Assigned tunnel_id={} to on ingress_id={}", tunnel_id, ingress_id);
 
                             write_framed
                                 .send(FrameV1::Authenticated {
@@ -67,7 +58,6 @@ pub async fn handle_server_protocol_v1_auth(
                             return Ok((ingress, Tunnel::new(
                                 tunnel_id,
                                 server.id().clone(),
-                                tunnel_name,
                                 ingress_id.clone(),
                                 connection.clone(),
                                 Some(server.byte_counter().clone())

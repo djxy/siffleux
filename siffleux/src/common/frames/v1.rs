@@ -4,7 +4,7 @@ use uuid::Uuid;
 
 use crate::{
     Error, ServerId,
-    common::{AuthKey, IngressId, TunnelName},
+    common::{AuthKey, IngressId},
 };
 
 pub const VERSION: &[u8] = b"siffleux/v1";
@@ -21,7 +21,6 @@ pub enum FrameV1 {
     Auth {
         auth_key: AuthKey,
         ingress_id: IngressId,
-        tunnel_name: TunnelName,
     },
     Authenticated {
         tunnel_id: Uuid,
@@ -40,15 +39,11 @@ impl Encoder<FrameV1> for CodecV1 {
             FrameV1::Auth {
                 auth_key,
                 ingress_id,
-                tunnel_name,
             } => {
                 let auth_key_str = auth_key.to_str();
                 let ingress_id_str = ingress_id.to_str();
-                let tunnel_name_str = tunnel_name.to_str();
 
-                let payload_length = (1 + auth_key_str.len())
-                    + (1 + ingress_id_str.len())
-                    + (1 + tunnel_name_str.len());
+                let payload_length = (1 + auth_key_str.len()) + (1 + ingress_id_str.len());
 
                 dst.reserve(1 + 2 + payload_length);
 
@@ -60,9 +55,6 @@ impl Encoder<FrameV1> for CodecV1 {
 
                 dst.put_u8(ingress_id_str.len() as u8);
                 dst.put_slice(ingress_id_str.as_bytes());
-
-                dst.put_u8(tunnel_name_str.len() as u8);
-                dst.put_slice(tunnel_name_str.as_bytes());
             }
             FrameV1::Authenticated {
                 tunnel_id,
@@ -128,13 +120,10 @@ impl Decoder for CodecV1 {
                 let auth_key_bytes = src.split_to(auth_key_len as usize);
                 let ingress_id_len = src.get_u8();
                 let ingress_id_bytes = src.split_to(ingress_id_len as usize);
-                let tunnel_name_len = src.get_u8();
-                let tunnel_name_bytes = src.split_to(tunnel_name_len as usize);
 
                 return Ok(Some(FrameV1::Auth {
                     auth_key: AuthKey::from_bytes(&auth_key_bytes)?,
                     ingress_id: IngressId::from_bytes(&ingress_id_bytes)?,
-                    tunnel_name: TunnelName::from_bytes(&tunnel_name_bytes)?,
                 }));
             }
             AUTHENTICATED_TYPE => {

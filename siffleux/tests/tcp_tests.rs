@@ -8,8 +8,8 @@ use rustls::{
     pki_types::{CertificateDer, PrivatePkcs8KeyDer},
 };
 use siffleux::{
-    AuthKey, Client, Egress, Ingress, IngressClone, IngressId, Server, TcpEgress, TcpIngress,
-    TunnelName, generate_self_signed_certificate,
+    AuthKey, Client, Egress, Ingress, IngressClone, IngressId, Server, ServerId, TcpEgress,
+    TcpIngress, generate_self_signed_certificate,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -49,11 +49,17 @@ fn init() -> &'static (
 #[tokio::test]
 async fn test_send_and_receive_data() {
     let (cert_der, key, cert_hash) = init();
+    let server_id = ServerId::try_from("server_id").unwrap();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("111").unwrap();
 
-    let server =
-        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
+    let server = Server::new_with_certificate(
+        server_id,
+        cert_der.clone(),
+        key.clone_key(),
+        cert_hash.clone(),
+    )
+    .unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -80,7 +86,6 @@ async fn test_send_and_receive_data() {
         .connect_tunnel_with_certificate_hash(
             auth_key.clone(),
             ingress_id.clone(),
-            TunnelName::try_from("aaa").unwrap(),
             server.address().unwrap(),
             SERVER_NAME.to_string(),
             cert_hash.clone(),
@@ -132,11 +137,17 @@ async fn test_send_and_receive_data() {
 #[tokio::test]
 async fn test_target_tcp_write_dropped() {
     let (cert_der, key, cert_hash) = init();
+    let server_id = ServerId::try_from("server_id").unwrap();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server =
-        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
+    let server = Server::new_with_certificate(
+        server_id,
+        cert_der.clone(),
+        key.clone_key(),
+        cert_hash.clone(),
+    )
+    .unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -163,7 +174,6 @@ async fn test_target_tcp_write_dropped() {
         .connect_tunnel_with_certificate_hash(
             auth_key.clone(),
             ingress_id.clone(),
-            TunnelName::try_from("aaa").unwrap(),
             server.address().unwrap(),
             SERVER_NAME.to_string(),
             cert_hash.clone(),
@@ -204,11 +214,17 @@ async fn test_target_tcp_write_dropped() {
 #[tokio::test]
 async fn test_origin_tcp_write_dropped() {
     let (cert_der, key, cert_hash) = init();
+    let server_id = ServerId::try_from("server_id").unwrap();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
 
-    let server =
-        Server::new_with_certificate(cert_der.clone(), key.clone_key(), cert_hash.clone()).unwrap();
+    let server = Server::new_with_certificate(
+        server_id,
+        cert_der.clone(),
+        key.clone_key(),
+        cert_hash.clone(),
+    )
+    .unwrap();
 
     server
         .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
@@ -235,7 +251,6 @@ async fn test_origin_tcp_write_dropped() {
         .connect_tunnel_with_certificate_hash(
             auth_key.clone(),
             ingress_id.clone(),
-            TunnelName::try_from("aaa").unwrap(),
             server.address().unwrap(),
             SERVER_NAME.to_string(),
             cert_hash.clone(),

@@ -13,7 +13,7 @@ use crate::{
         certificate_verifier::CertificateHashVerifier,
         protocols::v1::handle_client_protocol_v1_auth,
     },
-    common::{AuthKey, ByteCounter, IngressId, TunnelName},
+    common::{AuthKey, ByteCounter, IngressId},
     frames,
 };
 
@@ -42,7 +42,6 @@ impl Client {
         &self,
         auth_key: AuthKey,
         ingress_id: IngressId,
-        name: TunnelName,
         server_address: SocketAddr,
         server_name: String,
         certificate_hash: Vec<u8>,
@@ -77,7 +76,6 @@ impl Client {
                 .await?,
             auth_key,
             ingress_id.clone(),
-            name,
             &self.inner.byte_counter,
         )
         .await?;

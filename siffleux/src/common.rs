@@ -3,7 +3,6 @@ mod byte_counter;
 mod error;
 mod ingress_id;
 mod tunnel;
-mod tunnel_name;
 mod utils;
 
 pub mod code;
@@ -21,6 +20,5 @@ pub use tunnel::TunnelReadStream;
 pub use tunnel::TunnelStream;
 pub use tunnel::TunnelWriteFramed;
 pub use tunnel::TunnelWriteStream;
-pub use tunnel_name::TunnelName;
 pub use utils::generate_self_signed_certificate;
 pub use utils::hash_certificate;
