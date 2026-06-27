@@ -58,7 +58,6 @@ pub async fn handle_server_protocol_v1_auth(
                             return Ok((ingress, Tunnel::new(
                                 tunnel_id,
                                 server.id().clone(),
-                                ingress_id.clone(),
                                 connection.clone(),
                                 Some(server.byte_counter().clone())
                             )));

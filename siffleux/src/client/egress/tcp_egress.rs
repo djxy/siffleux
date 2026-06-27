@@ -1,18 +1,18 @@
 use std::{
+    fmt::Debug,
     net::{Ipv4Addr, SocketAddr},
-    sync::{
-        Arc,
-        atomic::{AtomicU16, Ordering},
-    },
+    sync::Arc,
+    time::Duration,
 };
 
-use tokio::{io::AsyncWriteExt, net::TcpSocket};
+use parking_lot::RwLock;
+use tokio::{io::AsyncWriteExt, net::TcpSocket, time::sleep};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error};
+use tracing::{debug, error, info};
 
 use crate::{
-    Egress, Error, Tunnel, TunnelReadStream, TunnelStream, TunnelWriteStream,
-    protocols::v1::handle_protocol_v1_tcp_stream,
+    Authentication, Egress, Error, IngressId, TunnelReadStream, TunnelStream, TunnelWriteStream,
+    client::egress::EgressId, protocols::v1::handle_protocol_v1_tcp_stream,
 };
 
 #[derive(Clone)]
@@ -21,33 +21,108 @@ pub struct TcpEgress {
 }
 
 struct TcpEgressInner {
-    tunnel: Tunnel,
+    id: EgressId,
+    ingress_id: IngressId,
+    authentication: Box<dyn Authentication>,
     target_addr: SocketAddr,
-    cancellation_token: CancellationToken,
-    port_pool: AtomicU16,
+    cancellation_token: RwLock<Option<CancellationToken>>,
 }
 
 #[async_trait::async_trait]
 impl Egress for TcpEgress {
+    fn id(&self) -> &EgressId {
+        &self.inner.id
+    }
+
+    fn ingress_id(&self) -> &IngressId {
+        &self.inner.ingress_id
+    }
+
     async fn start(&self) -> Result<(), Error> {
+        let cancellation_token = {
+            let mut cancellation_token = self.inner.cancellation_token.write();
+
+            if cancellation_token.is_some() {
+                return Err(Error::EgressAlreadyStarted);
+            }
+
+            let ct = CancellationToken::new();
+
+            *cancellation_token = Some(ct.clone());
+
+            ct
+        };
+        let mut tunnel = self.inner.authentication.connect(self).await?;
         let self_clone = self.clone();
 
         tokio::spawn(async move {
-            while let Ok((tunnel_read_stream, tunnel_write_stream, tunnel_stream)) =
-                self_clone.inner.tunnel.accept_stream().await
-            {
-                debug!(
-                    "Received tunnel stream from tunnel_id={} ingress_id={} on tcp_egress={}",
-                    self_clone.inner.tunnel.server_id(),
-                    self_clone.inner.tunnel.ingress_id(),
-                    self_clone.inner.target_addr
-                );
+            loop {
+                tokio::select! {
+                    accept_stream_result = tunnel.accept_stream() => {
+                        match accept_stream_result {
+                            Ok((tunnel_read_stream, tunnel_write_stream, tunnel_stream)) => {
+                                debug!(
+                                    ingress_id = %self_clone.ingress_id(),
+                                    egress_id = %self_clone.id(),
+                                    tunnel_id = %tunnel.id(),
+                                    "Received stream.",
+                                );
 
-                self_clone.handle_stream(tunnel_stream, tunnel_read_stream, tunnel_write_stream);
-            }
+                                self_clone.handle_stream(
+                                    tunnel_stream,
+                                    tunnel_read_stream,
+                                    tunnel_write_stream,
+                                    cancellation_token.clone()
+                                );
+                            }
+                            Err(e) => {
+                                error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
+                                break;
+                            }
+                        }
+                    }
+                    _ = tunnel.closed() => {
+                        let mut retry: u32 = 0;
 
-            if let Err(e) = self_clone.stop().await {
-                error!("Error while stopping tcp egress: {}", e)
+                        loop {
+                            info!(egress_id = %self_clone.id(), "Reconnecting to server...");
+                            match self_clone.inner.authentication.connect(&self_clone).await {
+                                Ok(t) => {
+                                    info!(egress_id = %self_clone.id(), "Reconnected to server.");
+                                    tunnel = t;
+                                    break;
+                                }
+                                Err(_) => {
+                                    let duration = Duration::from_millis((100 * 2_u64.pow(retry)).min(30_000_u64));
+
+                                    info!(egress_id = %self_clone.id(), "Failed to reconnect. Retry reconnecting in {:?}.", duration);
+
+                                    tokio::select! {
+                                        _ = sleep(duration) => {
+                                            retry += 1;
+                                        }
+                                        _ = cancellation_token.cancelled() => {
+                                            debug!(egress_id = %self_clone.id(), tunnel_id = %tunnel.id(), "Closing tunnel...");
+                                            tunnel.close().await;
+                                            debug!(egress_id = %self_clone.id(), tunnel_id = %tunnel.id(), "Tunnel closed.");
+
+                                            info!(egress_id = %self_clone.id(), "Egress closed.");
+                                            return;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    _ = cancellation_token.cancelled() => {
+                        debug!(egress_id = %self_clone.id(), tunnel_id = %tunnel.id(), "Closing tunnel...");
+                        tunnel.close().await;
+                        debug!(egress_id = %self_clone.id(), tunnel_id = %tunnel.id(), "Tunnel closed.");
+
+                        info!(egress_id = %self_clone.id(), "Egress closed.");
+                        return;
+                    }
+                }
             }
         });
 
@@ -55,20 +130,31 @@ impl Egress for TcpEgress {
     }
 
     async fn stop(&self) -> Result<(), Error> {
-        self.inner.cancellation_token.cancel();
+        match self.inner.cancellation_token.write().take() {
+            Some(cancellation_token) => {
+                cancellation_token.cancel();
 
-        Ok(())
+                Ok(())
+            }
+            None => Err(Error::EgressNotStarted),
+        }
     }
 }
 
 impl TcpEgress {
-    pub fn new(tunnel: Tunnel, target_addr: SocketAddr) -> Self {
+    pub fn new(
+        id: EgressId,
+        authentication: Box<dyn Authentication>,
+        ingress_id: IngressId,
+        target_addr: SocketAddr,
+    ) -> Self {
         Self {
             inner: Arc::new(TcpEgressInner {
-                tunnel,
+                id,
+                ingress_id,
+                authentication,
                 target_addr,
-                cancellation_token: CancellationToken::new(),
-                port_pool: AtomicU16::new(0),
+                cancellation_token: RwLock::new(None),
             }),
         }
     }
@@ -78,6 +164,7 @@ impl TcpEgress {
         tunnel_stream: TunnelStream,
         tunnel_read_stream: TunnelReadStream,
         mut tunnel_write_stream: TunnelWriteStream,
+        cancellation_token: CancellationToken,
     ) {
         let self_clone = self.clone();
 
@@ -113,25 +200,21 @@ impl TcpEgress {
                 };
 
             handle_protocol_v1_tcp_stream(
-                self_clone.inner.tunnel.ingress_id(),
+                self_clone.ingress_id(),
                 tunnel_stream,
                 tunnel_read_stream,
                 tunnel_write_stream,
                 tcp_remote_addr,
                 tcp_read_stream,
                 tcp_write_stream,
-                self_clone.inner.cancellation_token.clone(),
+                cancellation_token,
             )
             .await;
         });
     }
 
     async fn get_tcp_socket(&self) -> Result<TcpSocket, Error> {
-        let local_addr = SocketAddr::new(
-            Ipv4Addr::UNSPECIFIED.into(),
-            10000 + (self.inner.port_pool.fetch_add(1, Ordering::SeqCst) % 40000),
-        );
-
+        let local_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
         let socket = TcpSocket::new_v4()?;
 
         socket.set_reuseaddr(true)?;

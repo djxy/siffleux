@@ -1,10 +1,10 @@
 use crate::code::{UNKNOWN_ERROR, UNKNOWN_ERROR_SERVER_REASON};
-use crate::common::{ByteCounter, IngressId};
+use crate::common::ByteCounter;
 use crate::frames::v1::CodecV1;
 use crate::server::protocols::v1::{
     handle_server_protocol_v1_auth, handle_server_protocol_v1_command_stream,
 };
-use crate::{Error, frames};
+use crate::{Error, IngressId, frames};
 use crate::{Ingress, ServerId};
 use parking_lot::{Mutex, RwLock};
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
@@ -187,7 +187,10 @@ impl Server {
                     };
 
                     if let Err(e) = ingress.assign_tunnel(tunnel.clone()) {
-                        error!("Error while authenticating tunnel: {e}");
+                        error!(
+                            "Error while assigning tunnel to ingress_id={}: {e}",
+                            ingress.id()
+                        );
                     }
 
                     if let Err(e) = handle_server_protocol_v1_command_stream(

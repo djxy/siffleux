@@ -262,7 +262,6 @@ async fn test_multiple_handshake_v1_successful() {
 
         assert_eq!(server_tunnel.id(), tunnel.id());
         assert_eq!(server_tunnel.server_id(), tunnel.server_id());
-        assert_eq!(server_tunnel.ingress_id(), tunnel.ingress_id());
         assert_eq!(true, server_tunnel.is_closed());
         assert_eq!(true, tunnel.is_closed());
     }

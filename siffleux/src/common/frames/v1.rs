@@ -2,10 +2,7 @@ use bytes::{Buf, BufMut};
 use tokio_util::codec::{Decoder, Encoder};
 use uuid::Uuid;
 
-use crate::{
-    Error, ServerId,
-    common::{AuthKey, IngressId},
-};
+use crate::{Error, IngressId, ServerId, common::AuthKey};
 
 pub const VERSION: &[u8] = b"siffleux/v1";
 

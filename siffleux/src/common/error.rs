@@ -8,7 +8,7 @@ use std::sync::PoisonError;
 use thiserror::Error;
 
 use crate::code::{CONNECTION_EOF, REJECTED_AUTH_KEY, REJECTED_INGRESS_ID};
-use crate::common::IngressId;
+use crate::{EgressId, IngressId};
 
 #[derive(Error, Debug)]
 pub enum Error {
@@ -39,11 +39,11 @@ pub enum Error {
     #[error("Closed stream")]
     ClosedStream,
 
-    #[error("Egress is already listening")]
-    EgressAlreadyListening,
+    #[error("Egress is already started")]
+    EgressAlreadyStarted,
 
-    #[error("Egress is not listening")]
-    EgressNotListening,
+    #[error("Egress is not started")]
+    EgressNotStarted,
 
     #[error("Ingress has no tunnel connected")]
     IngressNoTunnelConnected,
@@ -59,6 +59,9 @@ pub enum Error {
 
     #[error("Invalid ingress_id reason={reason}")]
     InvalidIngressId { reason: String },
+
+    #[error("Invalid egress_id reason={reason}")]
+    InvalidEgressId { reason: String },
 
     #[error("Invalid server_id reason={reason}")]
     InvalidServerId { reason: String },
@@ -77,6 +80,9 @@ pub enum Error {
 
     #[error("Ingress ID {0} already assigned")]
     IngressIDAlreadyAssigned(IngressId),
+
+    #[error("Egress ID {0} already assigned")]
+    EgressIDAlreadyAssigned(EgressId),
 
     #[error("Unknown error: {0}")]
     TLS(Box<dyn std::error::Error + Send + Sync>),

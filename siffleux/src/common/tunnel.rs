@@ -5,7 +5,6 @@ use tokio_util::io::{InspectReader, InspectWriter};
 use uuid::Uuid;
 
 use crate::code::CONNECTION_EOF;
-use crate::common::IngressId;
 use crate::common::byte_counter::ByteCounter;
 use crate::frames::v1::CodecV1;
 use crate::{Error, ServerId};
@@ -20,7 +19,6 @@ struct TunnelInner {
     id: Uuid,
     server_id: ServerId,
     connection: Connection,
-    ingress_id: IngressId,
     byte_counter: ByteCounter,
 }
 
@@ -28,7 +26,6 @@ impl Tunnel {
     pub fn new(
         id: Uuid,
         server_id: ServerId,
-        ingress_id: IngressId,
         connection: Connection,
         parent_byte_counter: Option<ByteCounter>,
     ) -> Self {
@@ -37,7 +34,6 @@ impl Tunnel {
                 id,
                 server_id,
                 connection,
-                ingress_id,
                 byte_counter: ByteCounter::new(parent_byte_counter),
             }),
         }
@@ -49,10 +45,6 @@ impl Tunnel {
 
     pub fn server_id(&self) -> &ServerId {
         &self.inner.server_id
-    }
-
-    pub fn ingress_id(&self) -> &IngressId {
-        &self.inner.ingress_id
     }
 
     pub fn byte_counter(&self) -> &ByteCounter {

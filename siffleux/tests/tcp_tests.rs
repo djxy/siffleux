@@ -8,8 +8,8 @@ use rustls::{
     pki_types::{CertificateDer, PrivatePkcs8KeyDer},
 };
 use siffleux::{
-    AuthKey, Client, Egress, Ingress, IngressClone, IngressId, Server, ServerId, TcpEgress,
-    TcpIngress, generate_self_signed_certificate,
+    AuthKey, Client, Egress, EgressId, Ingress, IngressClone, IngressId, Server, ServerId,
+    TcpEgress, TcpIngress, generate_self_signed_certificate,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -51,7 +51,8 @@ async fn test_send_and_receive_data() {
     let (cert_der, key, cert_hash) = init();
     let server_id = ServerId::try_from("server_id").unwrap();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
-    let ingress_id = IngressId::try_from("111").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+    let egress_id = EgressId::try_from("egress").unwrap();
 
     let server = Server::new_with_certificate(
         server_id,
@@ -114,7 +115,7 @@ async fn test_send_and_receive_data() {
             }
         });
 
-        let tcp_egress = TcpEgress::new(tunnel_clone, tcp_echo_addr);
+        let tcp_egress = TcpEgress::new(egress_id, ingress_id, tunnel_clone, tcp_echo_addr);
 
         let _ = tcp_egress.start().await;
     });
@@ -140,6 +141,7 @@ async fn test_target_tcp_write_dropped() {
     let server_id = ServerId::try_from("server_id").unwrap();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
+    let egress_id = EgressId::try_from("egress").unwrap();
 
     let server = Server::new_with_certificate(
         server_id,
@@ -195,7 +197,7 @@ async fn test_target_tcp_write_dropped() {
             }
         });
 
-        let tcp_egress = TcpEgress::new(tunnel_clone, tcp_echo_addr);
+        let tcp_egress = TcpEgress::new(egress_id, ingress_id, tunnel_clone, tcp_echo_addr);
 
         let _ = tcp_egress.start().await;
     });
@@ -217,6 +219,7 @@ async fn test_origin_tcp_write_dropped() {
     let server_id = ServerId::try_from("server_id").unwrap();
     let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
     let ingress_id = IngressId::try_from("ingress").unwrap();
+    let egress_id = EgressId::try_from("egress").unwrap();
 
     let server = Server::new_with_certificate(
         server_id,
@@ -272,7 +275,7 @@ async fn test_origin_tcp_write_dropped() {
             }
         });
 
-        let tcp_egress = TcpEgress::new(tunnel_clone, tcp_echo_addr);
+        let tcp_egress = TcpEgress::new(egress_id, ingress_id, tunnel_clone, tcp_echo_addr);
 
         let _ = tcp_egress.start().await;
     });

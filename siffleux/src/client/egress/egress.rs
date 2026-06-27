@@ -1,7 +1,11 @@
-use crate::Error;
+use crate::{Error, IngressId, client::egress::EgressId};
 
 #[async_trait::async_trait]
 pub trait Egress: EgressClone + Send + Sync {
+    fn id(&self) -> &EgressId;
+
+    fn ingress_id(&self) -> &IngressId;
+
     async fn start(&self) -> Result<(), Error>;
 
     async fn stop(&self) -> Result<(), Error>;

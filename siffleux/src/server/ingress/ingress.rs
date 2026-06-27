@@ -1,7 +1,4 @@
-use crate::{
-    Error, Tunnel,
-    common::{HashedAuthKey, IngressId},
-};
+use crate::{Error, IngressId, Tunnel, common::HashedAuthKey};
 
 #[async_trait::async_trait]
 pub trait Ingress: IngressClone + Send + Sync {

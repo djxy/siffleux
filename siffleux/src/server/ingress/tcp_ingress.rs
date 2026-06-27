@@ -8,10 +8,10 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
-use crate::Ingress;
+use crate::common::HashedAuthKey;
 use crate::common::protocols::v1::handle_protocol_v1_tcp_stream;
-use crate::common::{HashedAuthKey, IngressId};
 use crate::{Error, Tunnel};
+use crate::{Ingress, IngressId};
 
 #[derive(Clone)]
 pub struct TcpIngress {

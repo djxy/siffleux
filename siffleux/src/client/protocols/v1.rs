@@ -17,8 +17,8 @@ use crate::{
 
 pub async fn handle_client_protocol_v1_auth(
     connection: Connection,
-    auth_key: AuthKey,
-    ingress_id: IngressId,
+    auth_key: &AuthKey,
+    ingress_id: &IngressId,
     client_byte_counter: &ByteCounter,
 ) -> Result<Tunnel, Error> {
     let (send_stream, recv_stream) = connection.open_bi().await?;
@@ -49,7 +49,6 @@ pub async fn handle_client_protocol_v1_auth(
                             let tunnel = Tunnel::new(
                                 tunnel_id,
                                 server_id,
-                                ingress_id.clone(),
                                 connection.clone(),
                                 Some(client_byte_counter.clone())
                             );

@@ -1,7 +1,6 @@
 mod auth_key;
 mod byte_counter;
 mod error;
-mod ingress_id;
 mod tunnel;
 mod utils;
 
@@ -13,7 +12,6 @@ pub use auth_key::AuthKey;
 pub use auth_key::HashedAuthKey;
 pub use byte_counter::ByteCounter;
 pub use error::Error;
-pub use ingress_id::IngressId;
 pub use tunnel::Tunnel;
 pub use tunnel::TunnelReadFramed;
 pub use tunnel::TunnelReadStream;
