@@ -10,7 +10,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::{
-    Egress, Error, IngressId, TunnelReadStream, TunnelStream, TunnelWriteStream,
+    Egress, Error, IngressId, Tunnel, TunnelReadStream, TunnelStream, TunnelWriteStream,
     authentication::Authentication, client::egress::EgressId,
     protocols::v1::handle_protocol_v1_tcp_stream,
 };
@@ -83,46 +83,39 @@ impl Egress for TcpEgress {
                             }
                         }
                     }
-                    _ = tunnel.closed() => {
-                        let mut retry: u32 = 0;
+                    _ = tunnel.closed() => {}
+                    _ = cancellation_token.cancelled() => {
+                        self_clone.close_tunnel(tunnel).await;
+                        return;
+                    }
+                }
 
-                        loop {
-                            info!(egress_id = %self_clone.id(), "Reconnecting to server...");
-                            match self_clone.inner.authentication.connect(&self_clone).await {
-                                Ok(t) => {
-                                    info!(egress_id = %self_clone.id(), "Reconnected to server.");
-                                    tunnel = t;
-                                    break;
+                let mut retry: u32 = 0;
+
+                loop {
+                    info!(egress_id = %self_clone.id(), "Reconnecting to server...");
+                    match self_clone.inner.authentication.connect(&self_clone).await {
+                        Ok(new_tunnel) => {
+                            info!(egress_id = %self_clone.id(), "Reconnected to server.");
+                            tunnel = new_tunnel;
+                            break;
+                        }
+                        Err(_) => {
+                            let duration =
+                                Duration::from_millis((100 * 2_u64.pow(retry)).min(30_000_u64));
+
+                            info!(egress_id = %self_clone.id(), "Failed to reconnect. Retry reconnecting in {:?}.", duration);
+
+                            tokio::select! {
+                                _ = sleep(duration) => {
+                                    retry += 1;
                                 }
-                                Err(_) => {
-                                    let duration = Duration::from_millis((100 * 2_u64.pow(retry)).min(30_000_u64));
-
-                                    info!(egress_id = %self_clone.id(), "Failed to reconnect. Retry reconnecting in {:?}.", duration);
-
-                                    tokio::select! {
-                                        _ = sleep(duration) => {
-                                            retry += 1;
-                                        }
-                                        _ = cancellation_token.cancelled() => {
-                                            debug!(egress_id = %self_clone.id(), tunnel_id = %tunnel.id(), "Closing tunnel...");
-                                            tunnel.close().await;
-                                            debug!(egress_id = %self_clone.id(), tunnel_id = %tunnel.id(), "Tunnel closed.");
-
-                                            info!(egress_id = %self_clone.id(), "Egress closed.");
-                                            return;
-                                        }
-                                    }
+                                _ = cancellation_token.cancelled() => {
+                                    self_clone.close_tunnel(tunnel).await;
+                                    return;
                                 }
                             }
                         }
-                    }
-                    _ = cancellation_token.cancelled() => {
-                        debug!(egress_id = %self_clone.id(), tunnel_id = %tunnel.id(), "Closing tunnel...");
-                        tunnel.close().await;
-                        debug!(egress_id = %self_clone.id(), tunnel_id = %tunnel.id(), "Tunnel closed.");
-
-                        info!(egress_id = %self_clone.id(), "Egress closed.");
-                        return;
                     }
                 }
             }
@@ -161,6 +154,14 @@ impl TcpEgress {
         }
     }
 
+    async fn close_tunnel(&self, tunnel: Tunnel) {
+        debug!(egress_id = %self.id(), tunnel_id = %tunnel.id(), "Closing tunnel...");
+        tunnel.close().await;
+        debug!(egress_id = %self.id(), tunnel_id = %tunnel.id(), "Tunnel closed.");
+
+        info!(egress_id = %self.id(), "Egress closed.");
+    }
+
     fn handle_stream(
         &self,
         tunnel_stream: TunnelStream,
@@ -172,7 +173,7 @@ impl TcpEgress {
 
         tokio::spawn(async move {
             let tcp_socket: TcpSocket = 'attempt: {
-                for _ in 0..5 {
+                for _ in 0..3 {
                     if let Ok(socket) = self_clone.get_tcp_socket().await {
                         break 'attempt socket;
                     }
