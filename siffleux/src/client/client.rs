@@ -1,6 +1,7 @@
 use std::{collections::HashMap, sync::Arc};
 
 use parking_lot::RwLock;
+use tracing::{error, info};
 
 use crate::{Egress, Error, client::egress::EgressId, common::ByteCounter};
 
@@ -36,6 +37,23 @@ impl Client {
         }
 
         egress_by_id.insert(egress.id().clone(), egress);
+
+        Ok(())
+    }
+
+    pub async fn stop(&self) -> Result<(), Error> {
+        info!("Closing egresses...");
+
+        for egress in self.inner.egress_by_id.write().drain() {
+            if let Err(e) = egress.1.stop().await {
+                error!(
+                    egress_id = %egress.0,
+                    "Error while closing egress: {e}"
+                );
+            }
+        }
+
+        info!("Egresses closed.");
 
         Ok(())
     }

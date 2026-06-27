@@ -4,7 +4,7 @@ use futures_util::{SinkExt, StreamExt};
 use quinn::{Connection, RecvStream, SendStream};
 use tokio::time::sleep;
 use tokio_util::codec::{FramedRead, FramedWrite};
-use tracing::debug;
+use tracing::{debug, error};
 
 use crate::{
     AuthKey, ByteCounter, Error, IngressId, Tunnel,
@@ -135,8 +135,10 @@ pub fn handle_client_protocol_v1_command_stream(
                             _ => {}
                         },
                         Some(Err(e)) => {
-                            connection_clone.close(UNKNOWN_ERROR, UNKNOWN_ERROR_CLIENT_REASON);
-                            debug!("Command stream error on tunnel_id={tunnel_id}: {e}");
+                            if !matches!(e, Error::ClosedTunnel) {
+                                connection_clone.close(UNKNOWN_ERROR, UNKNOWN_ERROR_CLIENT_REASON);
+                                error!("Command stream error on tunnel_id={tunnel_id}: {e}");
+                            }
                             return;
                         }
                         None => {

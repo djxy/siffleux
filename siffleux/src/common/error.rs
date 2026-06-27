@@ -175,6 +175,7 @@ impl From<ConnectionError> for Error {
                 c if c == CERTIFICATE_HASH_MISMATCH_CODE => Error::TLS(te.into()),
                 _ => Error::Unknown(te.into()),
             },
+            ConnectionError::LocallyClosed => Error::ClosedTunnel,
             _ => Error::Unknown(connection_error.into()),
         }
     }

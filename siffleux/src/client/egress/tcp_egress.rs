@@ -1,5 +1,4 @@
 use std::{
-    fmt::Debug,
     net::{Ipv4Addr, SocketAddr},
     sync::Arc,
     time::Duration,
@@ -11,8 +10,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::{
-    Authentication, Egress, Error, IngressId, TunnelReadStream, TunnelStream, TunnelWriteStream,
-    client::egress::EgressId, protocols::v1::handle_protocol_v1_tcp_stream,
+    Egress, Error, IngressId, TunnelReadStream, TunnelStream, TunnelWriteStream,
+    authentication::Authentication, client::egress::EgressId,
+    protocols::v1::handle_protocol_v1_tcp_stream,
 };
 
 #[derive(Clone)]
@@ -76,7 +76,9 @@ impl Egress for TcpEgress {
                                 );
                             }
                             Err(e) => {
-                                error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
+                                if !matches!(e, Error::ClosedTunnel) {
+                                    error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
+                                }
                                 break;
                             }
                         }

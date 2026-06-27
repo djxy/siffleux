@@ -62,7 +62,7 @@ pub async fn handle_protocol_v1_tcp_stream(
                                 ingress_id = %ingress_id_clone,
                                 remote = %tcp_remote_addr,
                                 stream_id = %tunnel_stream_id,
-                                "TCP read and tunnel write closed."
+                                "TCP read -> tunnel write closed."
                             );
                         }
                     }
@@ -91,13 +91,6 @@ pub async fn handle_protocol_v1_tcp_stream(
                 );
             }
         }
-
-        debug!(
-            ingress_id = %ingress_id_clone,
-            remote = %tcp_remote_addr,
-            stream_id = %tunnel_stream_id,
-            "TCP read -> tunnel write closed."
-        );
     });
 
     let ingress_id_clone = ingress_id.clone();
@@ -128,7 +121,7 @@ pub async fn handle_protocol_v1_tcp_stream(
                                 ingress_id = %ingress_id_clone,
                                 remote = %tcp_remote_addr,
                                 stream_id = %tunnel_stream_id,
-                                "Tunnel read and TCP write closed."
+                                "Tunnel read -> TCP write closed."
                             );
                         }
                     }
@@ -157,12 +150,6 @@ pub async fn handle_protocol_v1_tcp_stream(
                 );
             }
         }
-
-        debug!(
-                ingress_id = %ingress_id_clone,
-                remote = %tcp_remote_addr,
-                stream_id = %tunnel_stream_id,
-                "Tunnel read -> TCP write closed.");
     });
 
     tunnel_to_tcp_handle.await.unwrap();

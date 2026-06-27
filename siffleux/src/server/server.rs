@@ -143,7 +143,20 @@ impl Server {
 
     pub async fn stop(&self) -> Result<(), Error> {
         if let Some(endpoint) = self.inner.endpoint.lock().take() {
+            info!("Closing ingresses...");
+
+            for ingress in self.inner.ingress_by_id.write().drain() {
+                if let Err(e) = ingress.1.stop().await {
+                    error!(
+                        server_id = %self.id(),
+                        ingress_id = %ingress.0,
+                        "Error while closing ingress: {e}"
+                    );
+                }
+            }
+            info!("Ingresses closed.");
             info!("Closing server...");
+
             endpoint.close(VarInt::from_u32(0), b"done");
             endpoint.wait_idle().await;
             info!("Server closed.");
