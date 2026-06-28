@@ -1,19 +1,22 @@
+mod mock_ingress;
+
 use async_trait::async_trait;
-use parking_lot::Mutex;
 use rustls::crypto::aws_lc_rs;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
+use siffleux::IngressClone;
 use siffleux::authentication::{Authentication, V1CertifcateHash};
 use siffleux::{
-    AuthKey, Client, Egress, EgressId, Error, HashedAuthKey, IngressId, Server, ServerId, Tunnel,
+    AuthKey, Client, Egress, EgressId, Error, IngressId, Server, ServerId,
     generate_self_signed_certificate,
 };
-use siffleux::{Ingress, IngressClone};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::time::sleep;
 use tracing::Level;
+
+use crate::mock_ingress::MockIngress;
 
 static INIT: OnceLock<(
     CertificateDer<'static>,
@@ -49,54 +52,6 @@ impl Egress for MockEgress {
 
     fn ingress_id(&self) -> &IngressId {
         &self.inner.ingress_id
-    }
-
-    async fn start(&self) -> Result<(), Error> {
-        Ok(())
-    }
-
-    async fn stop(&self) -> Result<(), Error> {
-        Ok(())
-    }
-}
-
-#[derive(Clone)]
-struct MockIngress {
-    inner: Arc<MockIngressInner>,
-}
-
-struct MockIngressInner {
-    id: IngressId,
-    hashed_auth_key: HashedAuthKey,
-    tunnels: Mutex<Vec<Tunnel>>,
-}
-
-impl MockIngress {
-    fn new(id: IngressId, hashed_auth_key: HashedAuthKey) -> Self {
-        Self {
-            inner: Arc::new(MockIngressInner {
-                id,
-                hashed_auth_key,
-                tunnels: Mutex::new(vec![]),
-            }),
-        }
-    }
-}
-
-#[async_trait]
-impl Ingress for MockIngress {
-    fn id(&self) -> &IngressId {
-        &self.inner.id
-    }
-
-    fn hashed_auth_key(&self) -> &HashedAuthKey {
-        &self.inner.hashed_auth_key
-    }
-
-    fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
-        self.inner.tunnels.lock().push(tunnel);
-
-        Ok(())
     }
 
     async fn start(&self) -> Result<(), Error> {
@@ -166,7 +121,7 @@ async fn test_detect_tunnel_closed() {
     let mock_egress = MockEgress::new(EgressId::try_from("egress").unwrap(), ingress_id);
 
     let client_tunnel = authentication.connect(&mock_egress).await.unwrap();
-    let server_tunnel = mock_ingress.inner.tunnels.lock().pop().unwrap();
+    let server_tunnel = mock_ingress.accept_tunnel().await;
 
     let server_tunnel_close_handle = tokio::spawn(async move {
         client_tunnel.closed().await;
@@ -219,7 +174,7 @@ async fn test_send_data_over_stream() {
     let mock_egress = MockEgress::new(EgressId::try_from("egress").unwrap(), ingress_id);
 
     let client_tunnel = authentication.connect(&mock_egress).await.unwrap();
-    let server_tunnel = mock_ingress.inner.tunnels.lock().pop().unwrap();
+    let server_tunnel = mock_ingress.accept_tunnel().await;
 
     const VALUE: u64 = 6329282199514132237;
 
@@ -313,7 +268,7 @@ async fn test_multiple_handshake_v1_successful() {
 
         sleep(Duration::from_millis(10)).await;
 
-        let server_tunnel = mock_ingress.inner.tunnels.lock().pop().unwrap();
+        let server_tunnel = mock_ingress.accept_tunnel().await;
 
         assert_eq!(server_tunnel.id(), client_tunnel.id());
         assert_eq!(server_tunnel.server_id(), client_tunnel.server_id());
