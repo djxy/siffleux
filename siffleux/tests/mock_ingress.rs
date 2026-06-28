@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use siffleux::{Error, HashedAuthKey, Ingress, IngressId, Tunnel};
-use tokio::sync::watch::{self, Receiver, Sender};
+use tokio::sync::broadcast::{self, Receiver, Sender};
 
 #[derive(Clone)]
 pub struct MockIngress {
@@ -12,32 +12,23 @@ pub struct MockIngress {
 struct MockIngressInner {
     id: IngressId,
     hashed_auth_key: HashedAuthKey,
-    tunnel_sender: Sender<Option<Tunnel>>,
-    _tunnel_receiver: Receiver<Option<Tunnel>>,
+    tunnel_sender: Sender<Tunnel>,
 }
 
 impl MockIngress {
     pub fn new(id: IngressId, hashed_auth_key: HashedAuthKey) -> Self {
-        let (tunnel_sender, _tunnel_receiver) = watch::channel::<Option<Tunnel>>(None);
+        let (tunnel_sender, _) = broadcast::channel::<Tunnel>(8);
         Self {
             inner: Arc::new(MockIngressInner {
                 id,
                 hashed_auth_key,
                 tunnel_sender,
-                _tunnel_receiver,
             }),
         }
     }
 
-    pub async fn accept_tunnel(&self) -> Tunnel {
-        self.inner
-            .tunnel_sender
-            .subscribe()
-            .wait_for(|t| t.is_some())
-            .await
-            .unwrap()
-            .clone()
-            .unwrap()
+    pub fn subscribe_tunnel(&self) -> Receiver<Tunnel> {
+        self.inner.tunnel_sender.subscribe()
     }
 }
 
@@ -52,7 +43,7 @@ impl Ingress for MockIngress {
     }
 
     fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
-        self.inner.tunnel_sender.send(Some(tunnel)).unwrap();
+        self.inner.tunnel_sender.send(tunnel).unwrap();
 
         Ok(())
     }

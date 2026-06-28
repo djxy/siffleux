@@ -7,7 +7,7 @@ use std::{
 use parking_lot::RwLock;
 use tokio::{io::AsyncWriteExt, net::TcpSocket, time::sleep};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     Egress, Error, IngressId, Tunnel, TunnelReadStream, TunnelStream, TunnelWriteStream,
@@ -79,11 +79,12 @@ impl Egress for TcpEgress {
                                 if !matches!(e, Error::ClosedTunnel) {
                                     error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
                                 }
-                                break;
                             }
                         }
                     }
-                    _ = tunnel.closed() => {}
+                    _ = tunnel.closed() => {
+                        warn!(egress_id = %self_clone.id(), "Tunnel with server closed.");
+                    }
                     _ = cancellation_token.cancelled() => {
                         self_clone.close_tunnel(tunnel).await;
                         return;

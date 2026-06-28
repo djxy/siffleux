@@ -1,3 +1,5 @@
+mod mock_ingress;
+
 use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     sync::OnceLock,
@@ -16,6 +18,9 @@ use tokio::{
     net::{TcpListener, TcpStream},
 };
 use tracing::{Level, info};
+use uuid::Uuid;
+
+use crate::mock_ingress::MockIngress;
 
 static SERVER_NAME: &'static str = "localhost";
 
@@ -290,6 +295,69 @@ async fn test_origin_tcp_write_dropped() {
 
     assert_eq!(false, result.is_err());
     assert_eq!(Some(0), result.ok());
+
+    client.stop().await.unwrap();
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
+async fn test_tunnel_reconnection() {
+    let (cert_der, key, cert_hash) = init();
+    let server_id = ServerId::try_from("server_id").unwrap();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+    let egress_id = EgressId::try_from("egress").unwrap();
+
+    let server = Server::new_with_certificate(
+        server_id,
+        cert_der.clone(),
+        key.clone_key(),
+        cert_hash.clone(),
+    )
+    .unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .await
+        .unwrap();
+
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
+    let mut server_tunnel_subscriber = mock_ingress.subscribe_tunnel();
+
+    mock_ingress.start().await.unwrap();
+
+    server.assign_ingress(mock_ingress.clone_box()).unwrap();
+
+    let client = Client::new();
+
+    let authentication = V1CertifcateHash::new(
+        client.clone(),
+        auth_key,
+        server.address().unwrap(),
+        SERVER_NAME.to_string(),
+        cert_hash.clone(),
+    );
+
+    let tcp_egress = TcpEgress::new(
+        egress_id,
+        Box::new(authentication),
+        ingress_id,
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    );
+
+    tcp_egress.start().await.unwrap();
+
+    let mut previous_tunnel_id = Uuid::nil();
+
+    for _ in 0..3 {
+        let server_tunnel = server_tunnel_subscriber.recv().await.unwrap();
+
+        assert_ne!(previous_tunnel_id, server_tunnel.id());
+
+        previous_tunnel_id = server_tunnel.id();
+
+        server_tunnel.close().await;
+    }
 
     client.stop().await.unwrap();
     server.stop().await.unwrap();

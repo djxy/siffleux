@@ -105,6 +105,7 @@ async fn test_detect_tunnel_closed() {
         .unwrap();
 
     let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
+    let mut server_tunnel_subscriber = mock_ingress.subscribe_tunnel();
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
@@ -121,7 +122,7 @@ async fn test_detect_tunnel_closed() {
     let mock_egress = MockEgress::new(EgressId::try_from("egress").unwrap(), ingress_id);
 
     let client_tunnel = authentication.connect(&mock_egress).await.unwrap();
-    let server_tunnel = mock_ingress.accept_tunnel().await;
+    let server_tunnel = server_tunnel_subscriber.recv().await.unwrap();
 
     let server_tunnel_close_handle = tokio::spawn(async move {
         client_tunnel.closed().await;
@@ -158,6 +159,7 @@ async fn test_send_data_over_stream() {
         .unwrap();
 
     let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
+    let mut server_tunnel_subscriber = mock_ingress.subscribe_tunnel();
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
@@ -174,7 +176,7 @@ async fn test_send_data_over_stream() {
     let mock_egress = MockEgress::new(EgressId::try_from("egress").unwrap(), ingress_id);
 
     let client_tunnel = authentication.connect(&mock_egress).await.unwrap();
-    let server_tunnel = mock_ingress.accept_tunnel().await;
+    let server_tunnel = server_tunnel_subscriber.recv().await.unwrap();
 
     const VALUE: u64 = 6329282199514132237;
 
@@ -246,6 +248,7 @@ async fn test_multiple_handshake_v1_successful() {
         .unwrap();
 
     let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
+    let mut server_tunnel_subscriber = mock_ingress.subscribe_tunnel();
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 
@@ -268,7 +271,7 @@ async fn test_multiple_handshake_v1_successful() {
 
         sleep(Duration::from_millis(10)).await;
 
-        let server_tunnel = mock_ingress.accept_tunnel().await;
+        let server_tunnel = server_tunnel_subscriber.recv().await.unwrap();
 
         assert_eq!(server_tunnel.id(), client_tunnel.id());
         assert_eq!(server_tunnel.server_id(), client_tunnel.server_id());
