@@ -46,7 +46,7 @@ pub async fn handle_server_protocol_v1_auth(
 
                             let tunnel_id = Uuid::now_v7();
 
-                            debug!("Assigned tunnel_id={} to on ingress_id={}", tunnel_id, ingress_id);
+                            debug!(tunnel_id=%tunnel_id, ingress_id=%ingress_id, "Assigned tunnel to ingress");
 
                             write_framed
                                 .send(FrameV1::Authenticated {

@@ -10,17 +10,12 @@ use tracing::Level;
 
 use crate::{
     cli::{Cli, Commands, EgressCommand, IngressCommand},
+    client::launch_client_with_egresses,
     server::launch_server_with_ingresses,
 };
 
 #[tokio::main]
 async fn main() {
-    // let content = std::fs::read_to_string("config.toml").expect("Could not read config.toml");
-
-    // let cfg: Config = toml::from_str(&content).expect("Failed to parse config.toml");
-
-    // println!("{:?}", cfg);
-
     let cli = Cli::parse();
 
     aws_lc_rs::default_provider()
@@ -49,8 +44,8 @@ async fn main() {
             }
         },
         Commands::Client(client_command) => match client_command.egress {
-            EgressCommand::Tcp(tcp_args) => {
-                start_tcp_egress(client_command.client_args, tcp_args).await
+            EgressCommand::Tcp(tcp_egress_args) => {
+                launch_client_with_egresses(vec![tcp_egress_args.into()]).await
             }
         },
     }

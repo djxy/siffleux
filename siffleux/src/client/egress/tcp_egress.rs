@@ -57,37 +57,40 @@ impl Egress for TcpEgress {
 
         tokio::spawn(async move {
             loop {
-                tokio::select! {
-                    accept_stream_result = tunnel.accept_stream() => {
-                        match accept_stream_result {
-                            Ok((tunnel_read_stream, tunnel_write_stream, tunnel_stream)) => {
-                                debug!(
-                                    ingress_id = %self_clone.ingress_id(),
-                                    egress_id = %self_clone.id(),
-                                    tunnel_id = %tunnel.id(),
-                                    "Received stream.",
-                                );
+                loop {
+                    tokio::select! {
+                        accept_stream_result = tunnel.accept_stream() => {
+                            match accept_stream_result {
+                                Ok((tunnel_read_stream, tunnel_write_stream, tunnel_stream)) => {
+                                    debug!(
+                                        ingress_id = %self_clone.ingress_id(),
+                                        egress_id = %self_clone.id(),
+                                        tunnel_id = %tunnel.id(),
+                                        "Received stream.",
+                                    );
 
-                                self_clone.handle_stream(
-                                    tunnel_stream,
-                                    tunnel_read_stream,
-                                    tunnel_write_stream,
-                                    cancellation_token.clone()
-                                );
-                            }
-                            Err(e) => {
-                                if !matches!(e, Error::ClosedTunnel) {
-                                    error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
+                                    self_clone.handle_stream(
+                                        tunnel_stream,
+                                        tunnel_read_stream,
+                                        tunnel_write_stream,
+                                        cancellation_token.clone()
+                                    );
+                                }
+                                Err(e) => {
+                                    if !matches!(e, Error::ClosedTunnel) {
+                                        error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
+                                    }
                                 }
                             }
                         }
-                    }
-                    _ = tunnel.closed() => {
-                        warn!(egress_id = %self_clone.id(), "Tunnel with server closed.");
-                    }
-                    _ = cancellation_token.cancelled() => {
-                        self_clone.close_tunnel(tunnel).await;
-                        return;
+                        _ = tunnel.closed() => {
+                            warn!(egress_id = %self_clone.id(), "Tunnel with server closed.");
+                            break;
+                        }
+                        _ = cancellation_token.cancelled() => {
+                            self_clone.close_tunnel(tunnel).await;
+                            return;
+                        }
                     }
                 }
 

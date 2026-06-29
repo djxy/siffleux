@@ -1,11 +1,14 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clap::{Args, Parser, Subcommand};
-use siffleux::{AuthKey, IngressId, TunnelName};
+use siffleux::{AuthKey, EgressId, IngressId, ServerId};
 
 use crate::{
-    config::{IngressConfig, ServerConfig, TcpIngressConfig},
-    utils::CERT_SUBJECT_ALT_NAME,
+    config::{
+        AuthenticationConfig, EgressConfig, IngressConfig, ServerConfig, TcpEgressConfig,
+        TcpIngressConfig,
+    },
+    utils::{CERT_SUBJECT_ALT_NAME, generate_secure_random_key},
 };
 
 #[derive(Parser)]
@@ -23,7 +26,7 @@ pub enum Commands {
     /// Start a server
     Server(ServerCommand),
     /// Start a client
-    Client(TunnelCommand),
+    Client(ClientCommand),
 }
 
 // #########################
@@ -46,6 +49,38 @@ pub enum IngressCommand {
 }
 
 #[derive(Args)]
+pub struct ServerArgs {
+    /// ID to identify the server
+    pub id: Option<ServerId>,
+
+    /// IP address the server will listen for client connections
+    #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED))]
+    pub client_ip: IpAddr,
+
+    /// Port the server will listen for client connections
+    #[arg(long, default_value_t = 8765)]
+    pub client_port: u16,
+
+    /// Certificate subject alt name
+    #[arg(long, default_value = CERT_SUBJECT_ALT_NAME)]
+    pub cert_subject_alt_name: String,
+}
+
+impl Into<ServerConfig> for ServerArgs {
+    fn into(self) -> ServerConfig {
+        let id = self
+            .id
+            .unwrap_or_else(|| ServerId::try_from(generate_secure_random_key::<16>()).unwrap());
+
+        ServerConfig {
+            id,
+            client_addr: SocketAddr::new(self.client_ip, self.client_port),
+            cert_subject_alt_name: self.cert_subject_alt_name,
+        }
+    }
+}
+
+#[derive(Args)]
 pub struct TcpIngressAgrs {
     /// IP address the TCP ingress will listen for TCP connections
     #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED))]
@@ -55,48 +90,30 @@ pub struct TcpIngressAgrs {
     #[arg(long, default_value_t = 3000)]
     pub port: u16,
 
-    /// ID of the ingress to connect the tunnel
+    /// ID of the ingress
     #[arg(long)]
     pub ingress_id: Option<IngressId>,
 
-    /// Authentication key used to connect the tunnel to the ingress.
+    /// Authentication key used to connect to the ingress.
     #[arg(long)]
     pub auth_key: Option<AuthKey>,
 }
 
-#[derive(Args)]
-pub struct ServerArgs {
-    /// IP address the server will listen for tunnel connections
-    #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED))]
-    pub tunnel_ip: IpAddr,
-
-    /// Port the server will listen for tunnel connections
-    #[arg(long, default_value_t = 8765)]
-    pub tunnel_port: u16,
-
-    /// Certificate subject alt name
-    #[arg(long, default_value = CERT_SUBJECT_ALT_NAME)]
-    pub cert_subject_alt_name: String,
-}
-
 impl Into<IngressConfig> for TcpIngressAgrs {
     fn into(self) -> IngressConfig {
+        let auth_key = self
+            .auth_key
+            .unwrap_or_else(|| AuthKey::try_from(generate_secure_random_key::<32>()).unwrap());
+        let ingress_id = self
+            .ingress_id
+            .unwrap_or_else(|| IngressId::try_from(generate_secure_random_key::<16>()).unwrap());
+
         IngressConfig::TCP(TcpIngressConfig {
             ip: self.ip,
             port: self.port,
-            ingress_id: self.ingress_id,
-            auth_key: self.auth_key,
+            ingress_id,
+            auth_key,
         })
-    }
-}
-
-impl Into<ServerConfig> for ServerArgs {
-    fn into(self) -> ServerConfig {
-        ServerConfig {
-            tunnel_ip: self.tunnel_ip,
-            tunnel_port: self.tunnel_port,
-            cert_subject_alt_name: self.cert_subject_alt_name,
-        }
     }
 }
 
@@ -105,23 +122,22 @@ impl Into<ServerConfig> for ServerArgs {
 // #########################
 
 #[derive(Args)]
-pub struct TunnelCommand {
-    #[command(flatten)]
-    pub client_args: ClientArgs,
-
+pub struct ClientCommand {
     #[command(subcommand)]
     pub egress: EgressCommand,
 }
 
+#[derive(Subcommand)]
+pub enum EgressCommand {
+    /// Start a TCP egress to redirect TCP connections to a target
+    Tcp(TcpEgressAgrs),
+}
+
 #[derive(Args)]
-pub struct ClientArgs {
-    /// Address (hostname:port or ip:port) of the server to connect the tunnel
+pub struct AuthenticationArgs {
+    /// Address (hostname:port or ip:port) of the server to connect to
     #[arg(long)]
     pub server: String,
-
-    /// Name to identify the tunnel on the server
-    #[arg(long)]
-    pub name: Option<TunnelName>,
 
     /// Hash of the server certificate to validate
     #[arg(long)]
@@ -132,14 +148,22 @@ pub struct ClientArgs {
     pub cert_subject_alt_name: String,
 }
 
-#[derive(Subcommand)]
-pub enum EgressCommand {
-    /// Start a tunnel to redirect TCP connections to a target
-    Tcp(TcpEgressAgrs),
+impl Into<AuthenticationConfig> for AuthenticationArgs {
+    fn into(self) -> AuthenticationConfig {
+        AuthenticationConfig {
+            server: self.server,
+            cert_hash: self.cert_hash,
+            cert_subject_alt_name: self.cert_subject_alt_name,
+        }
+    }
 }
 
 #[derive(Args)]
 pub struct EgressAgrs {
+    /// ID of the egress
+    #[arg(long)]
+    pub id: EgressId,
+
     /// ID of the ingress to receive ingress connections
     #[arg(long)]
     pub ingress_id: IngressId,
@@ -152,9 +176,24 @@ pub struct EgressAgrs {
 #[derive(Args)]
 pub struct TcpEgressAgrs {
     #[command(flatten)]
+    pub authentication_args: AuthenticationArgs,
+
+    #[command(flatten)]
     pub egress_args: EgressAgrs,
 
     /// Address (ip:port) to send the TCP connections received from the ingress
     #[arg(long)]
     pub target: SocketAddr,
+}
+
+impl Into<EgressConfig> for TcpEgressAgrs {
+    fn into(self) -> EgressConfig {
+        EgressConfig::TCP(TcpEgressConfig {
+            authentication_config: self.authentication_args.into(),
+            id: self.egress_args.id,
+            ingress_id: self.egress_args.ingress_id,
+            auth_key: self.egress_args.auth_key,
+            target_addr: self.target,
+        })
+    }
 }

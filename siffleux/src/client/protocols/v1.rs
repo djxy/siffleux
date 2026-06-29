@@ -44,7 +44,7 @@ pub async fn handle_client_protocol_v1_auth(
                 match frame_res {
                     Ok(frame) => match frame {
                         FrameV1::Authenticated { server_id, tunnel_id } => {
-                            debug!("Received authenticated frame. Assigned tunnel_id={tunnel_id}");
+                            debug!(tunnel_id=%tunnel_id, "Received authenticated frame.");
 
                             let tunnel = Tunnel::new(
                                 tunnel_id,
@@ -100,7 +100,7 @@ pub fn handle_client_protocol_v1_command_stream(
 ) {
     tokio::spawn(async move {
         let connection_clone = connection.clone();
-        let tunnel_id = tunnel.server_id();
+        let tunnel_id = tunnel.id();
 
         let ping_delay = tokio::time::sleep_until(
             tokio::time::Instant::now() + Duration::from_secs(PING_INTERVAL_SEC),
@@ -108,18 +108,18 @@ pub fn handle_client_protocol_v1_command_stream(
 
         tokio::pin!(ping_delay);
 
-        debug!("Start command handler tunnel_id={tunnel_id}");
+        debug!(tunnel_id=%tunnel_id, "Start command handler");
 
         loop {
             tokio::select! {
                 _ = &mut ping_delay => {
                     if let Err(e) = send_framed.send(FrameV1::Ping).await {
                         connection_clone.close(UNKNOWN_ERROR, UNKNOWN_ERROR_CLIENT_REASON);
-                        debug!("Error while sending ping to tunnel_id={tunnel_id}: {e}");
+                        debug!(tunnel_id=%tunnel_id, "Error while sending ping: {e}");
                         return;
                     }
 
-                    debug!("Ping tunnel_id={tunnel_id}");
+                    debug!(tunnel_id=%tunnel_id, "Ping");
 
                     ping_delay.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(PING_INTERVAL_SEC));
                 }
@@ -130,20 +130,20 @@ pub fn handle_client_protocol_v1_command_stream(
                                 let _ = send_framed.send(FrameV1::Pong).await;
                             }
                             FrameV1::Pong => {
-                                debug!("Pong tunnel_id={tunnel_id}");
+                                debug!(tunnel_id=%tunnel_id, "Pong");
                             }
                             _ => {}
                         },
                         Some(Err(e)) => {
                             if !matches!(e, Error::ClosedTunnel) {
                                 connection_clone.close(UNKNOWN_ERROR, UNKNOWN_ERROR_CLIENT_REASON);
-                                error!("Command stream error on tunnel_id={tunnel_id}: {e}");
+                                error!(tunnel_id=%tunnel_id, "Command stream error on: {e}");
                             }
                             return;
                         }
                         None => {
                             connection_clone.close(COMMAND_STREAM_CLOSED, b"Command stream closed.");
-                            debug!("Command stream closed on tunnel_id={tunnel_id}");
+                            debug!(tunnel_id=%tunnel_id, "Command stream closed on ");
                             return;
                         }
                     }
