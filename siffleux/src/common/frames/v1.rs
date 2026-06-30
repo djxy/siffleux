@@ -8,7 +8,6 @@ pub const VERSION: &[u8] = b"siffleux/v1";
 
 const AUTH_TYPE: u8 = 0;
 const AUTHENTICATED_TYPE: u8 = 1;
-const TCP_STREAM_TYPE: u8 = 2;
 const PING_TYPE: u8 = 3;
 const PONG_TYPE: u8 = 4;
 
@@ -23,7 +22,6 @@ pub enum FrameV1 {
         tunnel_id: Uuid,
         server_id: ServerId,
     },
-    TCPStream,
     Ping,
     Pong,
 }
@@ -78,10 +76,6 @@ impl Encoder<FrameV1> for CodecV1 {
             FrameV1::Pong => {
                 dst.reserve(1);
                 dst.put_u8(PONG_TYPE);
-            }
-            FrameV1::TCPStream => {
-                dst.reserve(1);
-                dst.put_u8(TCP_STREAM_TYPE);
             }
         }
 
@@ -148,10 +142,6 @@ impl Decoder for CodecV1 {
             PONG_TYPE => {
                 src.advance(1);
                 return Ok(Some(FrameV1::Pong));
-            }
-            TCP_STREAM_TYPE => {
-                src.advance(1);
-                return Ok(Some(FrameV1::TCPStream));
             }
             _ => {}
         }

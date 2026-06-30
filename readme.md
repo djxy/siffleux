@@ -2,7 +2,7 @@
     <img src="./assets/logo.png" alt="Siffleux logo" width="200">
 </div>
 
-> Pronounced siflø, Siffleux is the French-Canadian name for a groundhog.
+> Siffleux, pronounced siflø, is the French-Canadian name for a groundhog.
 
 # Siffleux
 Siffleux is a tunnelling software developed in Rust and [QUIC](https://en.wikipedia.org/wiki/QUIC). It allows services hosted behind a NAT or a firewall to be reachable without opening ingress ports.

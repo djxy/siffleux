@@ -74,7 +74,7 @@ async fn test_send_and_receive_data() {
 
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
-        auth_key.hash(),
+        auth_key.clone(),
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
@@ -167,7 +167,7 @@ async fn test_target_tcp_write_dropped() {
 
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
-        auth_key.hash(),
+        auth_key.clone(),
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
@@ -242,7 +242,7 @@ async fn test_origin_tcp_write_dropped() {
 
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
-        auth_key.hash(),
+        auth_key.clone(),
         SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
@@ -321,7 +321,7 @@ async fn test_tunnel_reconnection() {
         .await
         .unwrap();
 
-    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.clone());
     let mut server_tunnel_subscriber = mock_ingress.subscribe_tunnel();
 
     mock_ingress.start().await.unwrap();

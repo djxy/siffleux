@@ -104,7 +104,7 @@ async fn test_detect_tunnel_closed() {
         .await
         .unwrap();
 
-    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.clone());
     let mut server_tunnel_subscriber = mock_ingress.subscribe_tunnel();
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
@@ -158,7 +158,7 @@ async fn test_send_data_over_stream() {
         .await
         .unwrap();
 
-    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.clone());
     let mut server_tunnel_subscriber = mock_ingress.subscribe_tunnel();
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
@@ -247,7 +247,7 @@ async fn test_multiple_handshake_v1_successful() {
         .await
         .unwrap();
 
-    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.clone());
     let mut server_tunnel_subscriber = mock_ingress.subscribe_tunnel();
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
@@ -348,7 +348,7 @@ async fn test_handshake_v1_rejected_auth_key() {
 
     let mock_ingress = MockIngress::new(
         IngressId::try_from("ingress").unwrap(),
-        AuthKey::try_from("valid_auth_key").unwrap().hash(),
+        AuthKey::try_from("valid_auth_key").unwrap(),
     );
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
@@ -399,7 +399,7 @@ async fn test_connection_with_wrong_certificate_hash() {
         .await
         .unwrap();
 
-    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.hash());
+    let mock_ingress = MockIngress::new(ingress_id.clone(), auth_key.clone());
 
     server.assign_ingress(mock_ingress.clone_box()).unwrap();
 

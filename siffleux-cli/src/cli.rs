@@ -35,11 +35,14 @@ pub enum Commands {
 
 #[derive(Args)]
 pub struct ServerCommand {
+    #[arg(long)]
+    pub config: Option<std::path::PathBuf>,
+
     #[command(flatten)]
     pub server_args: ServerArgs,
 
     #[command(subcommand)]
-    pub ingress: IngressCommand,
+    pub ingress: Option<IngressCommand>,
 }
 
 #[derive(Subcommand)]

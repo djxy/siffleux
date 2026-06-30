@@ -9,7 +9,6 @@ pub mod frames;
 pub mod protocols;
 
 pub use auth_key::AuthKey;
-pub use auth_key::HashedAuthKey;
 pub use byte_counter::ByteCounter;
 pub use error::Error;
 pub use tunnel::Tunnel;

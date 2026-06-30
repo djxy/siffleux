@@ -44,7 +44,7 @@ pub async fn launch_server_with_ingresses(
 async fn launch_tcp_ingress(tcp_ingress_config: TcpIngressConfig) -> TcpIngress {
     let tcp_ingress = TcpIngress::new(
         tcp_ingress_config.ingress_id.clone(),
-        tcp_ingress_config.auth_key.hash(),
+        tcp_ingress_config.auth_key.clone(),
         SocketAddr::new(tcp_ingress_config.ip, tcp_ingress_config.port),
     );
 

@@ -8,7 +8,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
-use crate::common::HashedAuthKey;
+use crate::common::AuthKey;
 use crate::common::protocols::v1::handle_protocol_v1_tcp_stream;
 use crate::{Error, Tunnel};
 use crate::{Ingress, IngressId};
@@ -20,7 +20,7 @@ pub struct TcpIngress {
 
 struct TcpIngressInner {
     id: IngressId,
-    hashed_auth_key: HashedAuthKey,
+    auth_key: AuthKey,
     /// Socket address the TCP ingress will listen for TCP connections
     socket_addr: SocketAddr,
     tunnels: RwLock<Vec<Tunnel>>,
@@ -35,8 +35,8 @@ impl Ingress for TcpIngress {
         &self.inner.id
     }
 
-    fn hashed_auth_key(&self) -> &HashedAuthKey {
-        &self.inner.hashed_auth_key
+    fn auth_key(&self) -> &AuthKey {
+        &self.inner.auth_key
     }
 
     fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
@@ -108,11 +108,11 @@ impl Ingress for TcpIngress {
 }
 
 impl TcpIngress {
-    pub fn new(id: IngressId, hashed_auth_key: HashedAuthKey, socket_addr: SocketAddr) -> Self {
+    pub fn new(id: IngressId, auth_key: AuthKey, socket_addr: SocketAddr) -> Self {
         Self {
             inner: Arc::new(TcpIngressInner {
                 id,
-                hashed_auth_key,
+                auth_key,
                 socket_addr,
                 tunnels: RwLock::new(Vec::new()),
                 tcp_listener: tokio::sync::Mutex::new(None),

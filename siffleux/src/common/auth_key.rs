@@ -1,14 +1,12 @@
 use std::str::FromStr;
 
 use crate::common::error::Error;
-use argon2::{
-    Argon2, PasswordHash, PasswordVerifier,
-    password_hash::{PasswordHasher, SaltString},
-};
 
 const MAX_LENGTH: usize = 255;
 
-#[derive(Debug, Clone)]
+#[derive(serde::Deserialize)]
+#[serde(try_from = "String")]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AuthKey(String);
 
 impl AuthKey {
@@ -38,10 +36,6 @@ impl AuthKey {
     pub fn to_str(&self) -> &str {
         &self.0
     }
-
-    pub fn hash(&self) -> HashedAuthKey {
-        HashedAuthKey::new(self)
-    }
 }
 
 impl TryFrom<&str> for AuthKey {
@@ -65,34 +59,5 @@ impl FromStr for AuthKey {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         Self::new(s)
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct HashedAuthKey(String);
-
-impl HashedAuthKey {
-    fn new(auth_key: &AuthKey) -> Self {
-        let mut buf = [0u8; 16];
-
-        getrandom::fill(&mut buf).unwrap();
-
-        let salt = SaltString::encode_b64(&mut buf).unwrap();
-
-        Self(
-            Argon2::default()
-                .hash_password(auth_key.to_str().as_bytes(), &salt)
-                .unwrap()
-                .to_string(),
-        )
-    }
-
-    /// Verify if the auth key matches the hashed auth key
-    pub fn verify(&self, auth_key: &AuthKey) -> bool {
-        let password_hash = PasswordHash::new(&self.0).unwrap();
-
-        Argon2::default()
-            .verify_password(auth_key.to_str().as_bytes(), &password_hash)
-            .is_ok()
     }
 }

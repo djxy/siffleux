@@ -7,6 +7,8 @@ use crate::Error;
 
 const SERVER_ID_MAX_LENGTH: usize = 255;
 
+#[derive(serde::Deserialize)]
+#[serde(try_from = "String")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ServerId(String);
 

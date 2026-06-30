@@ -7,6 +7,8 @@ use crate::Error;
 
 const INGRESS_ID_MAX_LENGTH: usize = 255;
 
+#[derive(serde::Deserialize)]
+#[serde(try_from = "String")]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct IngressId(String);
 

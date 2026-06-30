@@ -1,10 +1,10 @@
-use crate::{Error, IngressId, Tunnel, common::HashedAuthKey};
+use crate::{AuthKey, Error, IngressId, Tunnel};
 
 #[async_trait::async_trait]
 pub trait Ingress: IngressClone + Send + Sync {
     fn id(&self) -> &IngressId;
 
-    fn hashed_auth_key(&self) -> &HashedAuthKey;
+    fn auth_key(&self) -> &AuthKey;
 
     fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error>;
 

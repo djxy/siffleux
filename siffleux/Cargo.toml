@@ -13,12 +13,12 @@ thiserror = "2.0.18"
 async-trait = "0.1.89"
 bytes = "1.11.1"
 tokio-util = { version = "0.7.18", features = ["codec", "io"] }
-argon2 = "0.5.3"
 sha2 = "0.11.0"
 futures-util = { version = "0.3.32", features = ["sink"] }
 quinn = "0.11.9"
 parking_lot = "0.12.5"
 uuid = { version = "1.23.4", features = ["v7"] }
+serde = "1.0.228"
 
 [dev-dependencies]
 tracing-subscriber = { workspace = true }

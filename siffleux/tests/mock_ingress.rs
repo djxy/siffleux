@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use siffleux::{Error, HashedAuthKey, Ingress, IngressId, Tunnel};
+use siffleux::{AuthKey, Error, Ingress, IngressId, Tunnel};
 use tokio::sync::broadcast::{self, Receiver, Sender};
 
 #[derive(Clone)]
@@ -11,17 +11,17 @@ pub struct MockIngress {
 
 struct MockIngressInner {
     id: IngressId,
-    hashed_auth_key: HashedAuthKey,
+    auth_key: AuthKey,
     tunnel_sender: Sender<Tunnel>,
 }
 
 impl MockIngress {
-    pub fn new(id: IngressId, hashed_auth_key: HashedAuthKey) -> Self {
+    pub fn new(id: IngressId, auth_key: AuthKey) -> Self {
         let (tunnel_sender, _) = broadcast::channel::<Tunnel>(8);
         Self {
             inner: Arc::new(MockIngressInner {
                 id,
-                hashed_auth_key,
+                auth_key,
                 tunnel_sender,
             }),
         }
@@ -38,8 +38,8 @@ impl Ingress for MockIngress {
         &self.inner.id
     }
 
-    fn hashed_auth_key(&self) -> &HashedAuthKey {
-        &self.inner.hashed_auth_key
+    fn auth_key(&self) -> &AuthKey {
+        &self.inner.auth_key
     }
 
     fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {

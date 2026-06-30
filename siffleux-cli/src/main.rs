@@ -2,16 +2,19 @@ mod cli;
 mod client;
 mod config;
 mod server;
+mod toml_config;
 mod utils;
 
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
-use tracing::Level;
+use tokio::fs::read_to_string;
+use tracing::{Level, info};
 
 use crate::{
     cli::{Cli, Commands, EgressCommand, IngressCommand},
     client::launch_client_with_egresses,
     server::launch_server_with_ingresses,
+    toml_config::ServerToml,
 };
 
 #[tokio::main]
@@ -34,15 +37,23 @@ async fn main() {
         .init();
 
     match cli.command {
-        Commands::Server(server_command) => match server_command.ingress {
-            IngressCommand::Tcp(tcp_ingress_args) => {
-                launch_server_with_ingresses(
-                    server_command.server_args.into(),
-                    vec![tcp_ingress_args.into()],
-                )
-                .await;
+        Commands::Server(server_command) => {
+            if let Some(config_path) = server_command.config {
+                let contents = read_to_string(config_path).await.unwrap();
+                let file_config: ServerToml = toml::from_str(&contents).unwrap();
+                info!("file_config={:?}", file_config);
+            } else if let Some(ingress_command) = server_command.ingress {
+                match ingress_command {
+                    IngressCommand::Tcp(tcp_ingress_args) => {
+                        launch_server_with_ingresses(
+                            server_command.server_args.into(),
+                            vec![tcp_ingress_args.into()],
+                        )
+                        .await;
+                    }
+                }
             }
-        },
+        }
         Commands::Client(client_command) => match client_command.egress {
             EgressCommand::Tcp(tcp_egress_args) => {
                 launch_client_with_egresses(vec![tcp_egress_args.into()]).await

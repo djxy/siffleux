@@ -36,7 +36,7 @@ pub async fn handle_server_protocol_v1_auth(
                                 return Err(Error::RejectedIngressId);
                             };
 
-                            if !ingress.hashed_auth_key().verify(&auth_key) {
+                            if ingress.auth_key() != &auth_key {
                                 warn!("Invalid auth key received.");
 
                                 connection.close(REJECTED_AUTH_KEY, b"rejected auth key");
