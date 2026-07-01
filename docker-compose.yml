@@ -6,11 +6,11 @@ services:
       - 3000:3000
     volumes:
       - server_data:/siffleux
-    command: --verbose server tcp --ingress-id tcp-ingress --auth-key secret!123
+    command: --verbose server tcp --id tcp-ingress --auth-key secret!123
   tcp-client:
     build:
       dockerfile: ./Dockerfile
-    command: --verbose client tcp --id tcp-egress --ingress-id tcp-ingress --server server:8765 --cert-hash HQ1Xn8z2BcyP6vwiZ1bOEwvUZP8BVI7Eki-qCIQj-NQ= --auth-key secret!123 --target 192.168.2.46:5201
+    command: --verbose client tcp --id tcp-egress --ingress-id tcp-ingress --server server:8765 --certificate-hash HQ1Xn8z2BcyP6vwiZ1bOEwvUZP8BVI7Eki-qCIQj-NQ= --auth-key secret!123 --target 192.168.2.47:5201
   # end-client:
   #   build:
   #     dockerfile: ./Dockerfile

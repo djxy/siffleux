@@ -1,11 +1,18 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use siffleux::{AuthKey, EgressId, IngressId, ServerId};
+
+pub const DEFAULT_SERVER_IP: IpAddr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
+pub const DEFAULT_SERVER_PORT: u16 = 8765;
+pub const DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME: &'static str = "self-host.siffleux.dev";
+
+pub const DEFAULT_INGRESS_IP: IpAddr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
 
 // #########################
 // Server Config
 // #########################
 
+#[derive(Debug)]
 pub struct ServerConfig {
     /// ID to identify the server the client is connected to
     pub id: ServerId,
@@ -17,19 +24,18 @@ pub struct ServerConfig {
     pub cert_subject_alt_name: String,
 }
 
+#[derive(Debug)]
 pub enum IngressConfig {
     TCP(TcpIngressConfig),
 }
 
+#[derive(Debug)]
 pub struct TcpIngressConfig {
-    /// IP address the TCP ingress will listen for TCP connections
-    pub ip: IpAddr,
-
-    /// Port the TCP ingress will listen for TCP connections
-    pub port: u16,
+    /// Socket address the TCP ingress will listen for TCP connections
+    pub addr: SocketAddr,
 
     /// ID of the ingress
-    pub ingress_id: IngressId,
+    pub id: IngressId,
 
     /// Authentication key used to connect to the ingress.
     pub auth_key: AuthKey,
@@ -44,10 +50,10 @@ pub struct AuthenticationConfig {
     pub server: String,
 
     /// Hash of the server certificate to validate
-    pub cert_hash: String,
+    pub certificate_hash: String,
 
     /// Certificate subject alt name
-    pub cert_subject_alt_name: String,
+    pub certificate_subject_alt_name: String,
 }
 
 pub enum EgressConfig {

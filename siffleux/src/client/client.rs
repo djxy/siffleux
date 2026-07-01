@@ -42,18 +42,21 @@ impl Client {
     }
 
     pub async fn stop(&self) -> Result<(), Error> {
-        info!("Closing egresses...");
+        info!("Stopping egresses");
 
-        for egress in self.inner.egress_by_id.write().drain() {
-            if let Err(e) = egress.1.stop().await {
+        let egresses: Vec<(EgressId, Box<dyn Egress>)> =
+            { self.inner.egress_by_id.write().drain().collect() };
+
+        for (id, egress) in egresses {
+            if let Err(e) = egress.stop().await {
                 error!(
-                    egress_id = %egress.0,
-                    "Error while closing egress: {e}"
+                    egress_id = %id,
+                    "Error while stopping egress: {e}"
                 );
             }
         }
 
-        info!("Egresses closed.");
+        info!("Egresses stopped");
 
         Ok(())
     }

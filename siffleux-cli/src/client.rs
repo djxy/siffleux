@@ -5,7 +5,7 @@ use siffleux::{Client, Egress, TcpEgress, authentication::V1CertifcateHash};
 use tokio::net::lookup_host;
 
 use crate::{
-    config::{
+    siffleux_config::{
         AuthenticationConfig,
         EgressConfig::{self, TCP},
         TcpEgressConfig,
@@ -42,7 +42,7 @@ async fn launch_tcp_egress(
         server_address,
         tcp_egress_config
             .authentication_config
-            .cert_subject_alt_name
+            .certificate_subject_alt_name
             .clone(),
         certificate_hash,
     );
@@ -55,6 +55,8 @@ async fn launch_tcp_egress(
     );
 
     tcp_egress.start().await.unwrap();
+
+    client.assign_egress(Box::new(tcp_egress)).unwrap();
 
     Ok(())
 }
@@ -73,7 +75,7 @@ async fn prepare_server_config(
     };
 
     let certificate_hash = BASE64_ENGINE
-        .decode(authentication_config.cert_hash.clone())
+        .decode(authentication_config.certificate_hash.clone())
         .unwrap();
 
     Ok((server_address, certificate_hash))

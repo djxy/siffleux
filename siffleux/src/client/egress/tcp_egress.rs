@@ -4,8 +4,7 @@ use std::{
     time::Duration,
 };
 
-use parking_lot::RwLock;
-use tokio::{io::AsyncWriteExt, net::TcpSocket, time::sleep};
+use tokio::{io::AsyncWriteExt, net::TcpSocket, sync::RwLock, task::JoinHandle, time::sleep};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
@@ -25,7 +24,7 @@ struct TcpEgressInner {
     ingress_id: IngressId,
     authentication: Box<dyn Authentication>,
     target_addr: SocketAddr,
-    cancellation_token: RwLock<Option<CancellationToken>>,
+    process: RwLock<Option<(CancellationToken, JoinHandle<()>)>>,
 }
 
 #[async_trait::async_trait]
@@ -39,23 +38,23 @@ impl Egress for TcpEgress {
     }
 
     async fn start(&self) -> Result<(), Error> {
-        let cancellation_token = {
-            let mut cancellation_token = self.inner.cancellation_token.write();
+        let mut start_process = self.inner.process.write().await;
 
-            if cancellation_token.is_some() {
-                return Err(Error::EgressAlreadyStarted);
-            }
+        if start_process.is_some() {
+            return Err(Error::EgressAlreadyStarted);
+        }
 
-            let ct = CancellationToken::new();
+        info!(egress_id = %self.id(), "Starting");
 
-            *cancellation_token = Some(ct.clone());
-
-            ct
-        };
         let mut tunnel = self.inner.authentication.connect(self).await?;
+
+        info!(egress_id = %self.id(), tunnel_id = %tunnel.id(), "Tunnel connected");
+
+        let cancellation_token = CancellationToken::new();
+        let cancellation_token_clone = cancellation_token.clone();
         let self_clone = self.clone();
 
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             loop {
                 loop {
                     tokio::select! {
@@ -73,7 +72,7 @@ impl Egress for TcpEgress {
                                         tunnel_stream,
                                         tunnel_read_stream,
                                         tunnel_write_stream,
-                                        cancellation_token.clone()
+                                        cancellation_token_clone.clone()
                                     );
                                 }
                                 Err(e) => {
@@ -87,8 +86,8 @@ impl Egress for TcpEgress {
                             warn!(egress_id = %self_clone.id(), "Tunnel with server closed.");
                             break;
                         }
-                        _ = cancellation_token.cancelled() => {
-                            self_clone.close_tunnel(tunnel).await;
+                        _ = cancellation_token_clone.cancelled() => {
+                            self_clone.stop_process(tunnel).await;
                             return;
                         }
                     }
@@ -114,8 +113,8 @@ impl Egress for TcpEgress {
                                 _ = sleep(duration) => {
                                     retry += 1;
                                 }
-                                _ = cancellation_token.cancelled() => {
-                                    self_clone.close_tunnel(tunnel).await;
+                                _ = cancellation_token_clone.cancelled() => {
+                                    self_clone.stop_process(tunnel).await;
                                     return;
                                 }
                             }
@@ -125,13 +124,20 @@ impl Egress for TcpEgress {
             }
         });
 
+        *start_process = Some((cancellation_token, handle));
+
+        info!(egress_id = %self.id(), "Started");
+
         Ok(())
     }
 
     async fn stop(&self) -> Result<(), Error> {
-        match self.inner.cancellation_token.write().take() {
-            Some(cancellation_token) => {
+        match self.inner.process.write().await.take() {
+            Some((cancellation_token, handle)) => {
+                info!(egress_id = %self.id(), "Stopping");
                 cancellation_token.cancel();
+                handle.await?;
+                info!(egress_id = %self.id(), "Stopped");
 
                 Ok(())
             }
@@ -153,17 +159,13 @@ impl TcpEgress {
                 ingress_id,
                 authentication,
                 target_addr,
-                cancellation_token: RwLock::new(None),
+                process: RwLock::new(None),
             }),
         }
     }
 
-    async fn close_tunnel(&self, tunnel: Tunnel) {
-        debug!(egress_id = %self.id(), tunnel_id = %tunnel.id(), "Closing tunnel...");
+    async fn stop_process(&self, tunnel: Tunnel) {
         tunnel.close().await;
-        debug!(egress_id = %self.id(), tunnel_id = %tunnel.id(), "Tunnel closed.");
-
-        info!(egress_id = %self.id(), "Egress closed.");
     }
 
     fn handle_stream(

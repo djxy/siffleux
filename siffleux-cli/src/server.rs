@@ -1,9 +1,7 @@
-use std::net::SocketAddr;
-
 use siffleux::{Ingress, IngressClone, Server, TcpIngress};
 
 use crate::{
-    config::{
+    siffleux_config::{
         IngressConfig::{self, TCP},
         ServerConfig, TcpIngressConfig,
     },
@@ -43,9 +41,9 @@ pub async fn launch_server_with_ingresses(
 
 async fn launch_tcp_ingress(tcp_ingress_config: TcpIngressConfig) -> TcpIngress {
     let tcp_ingress = TcpIngress::new(
-        tcp_ingress_config.ingress_id.clone(),
+        tcp_ingress_config.id.clone(),
         tcp_ingress_config.auth_key.clone(),
-        SocketAddr::new(tcp_ingress_config.ip, tcp_ingress_config.port),
+        tcp_ingress_config.addr,
     );
 
     tcp_ingress.start().await.unwrap();

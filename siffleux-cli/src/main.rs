@@ -1,20 +1,21 @@
 mod cli;
 mod client;
-mod config;
 mod server;
+mod siffleux_config;
 mod toml_config;
 mod utils;
 
 use clap::Parser;
 use rustls::crypto::aws_lc_rs;
 use tokio::fs::read_to_string;
-use tracing::{Level, info};
+use tracing::Level;
 
 use crate::{
     cli::{Cli, Commands, EgressCommand, IngressCommand},
     client::launch_client_with_egresses,
     server::launch_server_with_ingresses,
-    toml_config::ServerToml,
+    siffleux_config::{EgressConfig, IngressConfig, ServerConfig},
+    toml_config::{ClientToml, ServerToml},
 };
 
 #[tokio::main]
@@ -40,8 +41,11 @@ async fn main() {
         Commands::Server(server_command) => {
             if let Some(config_path) = server_command.config {
                 let contents = read_to_string(config_path).await.unwrap();
-                let file_config: ServerToml = toml::from_str(&contents).unwrap();
-                info!("file_config={:?}", file_config);
+                let server_toml: ServerToml = toml::from_str(&contents).unwrap();
+                let (server_config, ingresses): (ServerConfig, Vec<IngressConfig>) =
+                    server_toml.into();
+
+                launch_server_with_ingresses(server_config, ingresses).await;
             } else if let Some(ingress_command) = server_command.ingress {
                 match ingress_command {
                     IngressCommand::Tcp(tcp_ingress_args) => {
@@ -54,10 +58,20 @@ async fn main() {
                 }
             }
         }
-        Commands::Client(client_command) => match client_command.egress {
-            EgressCommand::Tcp(tcp_egress_args) => {
-                launch_client_with_egresses(vec![tcp_egress_args.into()]).await
+        Commands::Client(client_command) => {
+            if let Some(config_path) = client_command.config {
+                let contents = read_to_string(config_path).await.unwrap();
+                let client_toml: ClientToml = toml::from_str(&contents).unwrap();
+                let egresses: Vec<EgressConfig> = client_toml.into();
+
+                launch_client_with_egresses(egresses).await
+            } else if let Some(egress_command) = client_command.egress {
+                match egress_command {
+                    EgressCommand::Tcp(tcp_egress_args) => {
+                        launch_client_with_egresses(vec![tcp_egress_args.into()]).await
+                    }
+                }
             }
-        },
+        }
     }
 }

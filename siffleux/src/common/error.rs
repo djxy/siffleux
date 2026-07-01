@@ -6,6 +6,7 @@ use quinn::{
 use std::string::FromUtf8Error;
 use std::sync::PoisonError;
 use thiserror::Error;
+use tokio::task::JoinError;
 
 use crate::code::{CONNECTION_EOF, REJECTED_AUTH_KEY, REJECTED_INGRESS_ID};
 use crate::{EgressId, IngressId};
@@ -131,10 +132,8 @@ impl From<WriteError> for Error {
 }
 
 impl From<ConnectError> for Error {
-    fn from(connect_error: ConnectError) -> Self {
-        match connect_error {
-            _ => Error::Unknown(connect_error.into()),
-        }
+    fn from(err: ConnectError) -> Self {
+        Error::Unknown(err.into())
     }
 }
 
@@ -153,10 +152,8 @@ impl From<ClosedStream> for Error {
 }
 
 impl From<NoInitialCipherSuite> for Error {
-    fn from(no_initial_cipher_suite: NoInitialCipherSuite) -> Self {
-        match no_initial_cipher_suite {
-            _ => Error::Unknown(no_initial_cipher_suite.into()),
-        }
+    fn from(err: NoInitialCipherSuite) -> Self {
+        Error::Unknown(err.into())
     }
 }
 
@@ -200,17 +197,19 @@ impl From<std::io::Error> for Error {
 }
 
 impl<T> From<PoisonError<T>> for Error {
-    fn from(poison_error: PoisonError<T>) -> Self {
-        match poison_error {
-            _ => Error::PoisonLock(poison_error.to_string()),
-        }
+    fn from(err: PoisonError<T>) -> Self {
+        Error::PoisonLock(err.to_string())
     }
 }
 
 impl From<uuid::Error> for Error {
-    fn from(uuid_err: uuid::Error) -> Self {
-        match uuid_err {
-            _ => Error::Unknown(uuid_err.into()),
-        }
+    fn from(err: uuid::Error) -> Self {
+        Error::Unknown(err.into())
+    }
+}
+
+impl From<JoinError> for Error {
+    fn from(err: JoinError) -> Self {
+        Error::Unknown(err.into())
     }
 }

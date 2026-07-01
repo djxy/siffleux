@@ -4,11 +4,11 @@ use clap::{Args, Parser, Subcommand};
 use siffleux::{AuthKey, EgressId, IngressId, ServerId};
 
 use crate::{
-    config::{
-        AuthenticationConfig, EgressConfig, IngressConfig, ServerConfig, TcpEgressConfig,
-        TcpIngressConfig,
+    siffleux_config::{
+        AuthenticationConfig, DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME, EgressConfig, IngressConfig,
+        ServerConfig, TcpEgressConfig, TcpIngressConfig,
     },
-    utils::{CERT_SUBJECT_ALT_NAME, generate_secure_random_key},
+    utils::generate_secure_random_key,
 };
 
 #[derive(Parser)]
@@ -58,15 +58,15 @@ pub struct ServerArgs {
 
     /// IP address the server will listen for client connections
     #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED))]
-    pub client_ip: IpAddr,
+    pub ip: IpAddr,
 
     /// Port the server will listen for client connections
     #[arg(long, default_value_t = 8765)]
-    pub client_port: u16,
+    pub port: u16,
 
     /// Certificate subject alt name
-    #[arg(long, default_value = CERT_SUBJECT_ALT_NAME)]
-    pub cert_subject_alt_name: String,
+    #[arg(long, default_value = DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME)]
+    pub certificate_subject_alt_name: String,
 }
 
 impl Into<ServerConfig> for ServerArgs {
@@ -77,8 +77,8 @@ impl Into<ServerConfig> for ServerArgs {
 
         ServerConfig {
             id,
-            client_addr: SocketAddr::new(self.client_ip, self.client_port),
-            cert_subject_alt_name: self.cert_subject_alt_name,
+            client_addr: SocketAddr::new(self.ip, self.port),
+            cert_subject_alt_name: self.certificate_subject_alt_name,
         }
     }
 }
@@ -95,7 +95,7 @@ pub struct TcpIngressAgrs {
 
     /// ID of the ingress
     #[arg(long)]
-    pub ingress_id: Option<IngressId>,
+    pub id: Option<IngressId>,
 
     /// Authentication key used to connect to the ingress.
     #[arg(long)]
@@ -107,14 +107,13 @@ impl Into<IngressConfig> for TcpIngressAgrs {
         let auth_key = self
             .auth_key
             .unwrap_or_else(|| AuthKey::try_from(generate_secure_random_key::<32>()).unwrap());
-        let ingress_id = self
-            .ingress_id
+        let id = self
+            .id
             .unwrap_or_else(|| IngressId::try_from(generate_secure_random_key::<16>()).unwrap());
 
         IngressConfig::TCP(TcpIngressConfig {
-            ip: self.ip,
-            port: self.port,
-            ingress_id,
+            addr: SocketAddr::new(self.ip, self.port),
+            id,
             auth_key,
         })
     }
@@ -126,8 +125,11 @@ impl Into<IngressConfig> for TcpIngressAgrs {
 
 #[derive(Args)]
 pub struct ClientCommand {
+    #[arg(long)]
+    pub config: Option<std::path::PathBuf>,
+
     #[command(subcommand)]
-    pub egress: EgressCommand,
+    pub egress: Option<EgressCommand>,
 }
 
 #[derive(Subcommand)]
@@ -144,19 +146,19 @@ pub struct AuthenticationArgs {
 
     /// Hash of the server certificate to validate
     #[arg(long)]
-    pub cert_hash: String,
+    pub certificate_hash: String,
 
     /// Certificate subject alt name
-    #[arg(long, default_value = CERT_SUBJECT_ALT_NAME)]
-    pub cert_subject_alt_name: String,
+    #[arg(long, default_value = DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME)]
+    pub certificate_subject_alt_name: String,
 }
 
 impl Into<AuthenticationConfig> for AuthenticationArgs {
     fn into(self) -> AuthenticationConfig {
         AuthenticationConfig {
             server: self.server,
-            cert_hash: self.cert_hash,
-            cert_subject_alt_name: self.cert_subject_alt_name,
+            certificate_hash: self.certificate_hash,
+            certificate_subject_alt_name: self.certificate_subject_alt_name,
         }
     }
 }

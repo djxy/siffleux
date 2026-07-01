@@ -2,6 +2,7 @@ use quinn::{Connection, RecvStream, SendStream, VarInt};
 use std::sync::Arc;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tokio_util::io::{InspectReader, InspectWriter};
+use tracing::debug;
 use uuid::Uuid;
 
 use crate::code::CONNECTION_EOF;
@@ -60,8 +61,10 @@ impl Tunnel {
     }
 
     pub async fn close_with_reason(&self, code: VarInt, reason: &[u8]) {
+        debug!(tunnel_id = %self.id(), "Closing");
         self.inner.connection.close(code, reason);
         self.inner.connection.closed().await;
+        debug!(tunnel_id = %self.id(), "Closed");
     }
 
     pub async fn close(&self) {
