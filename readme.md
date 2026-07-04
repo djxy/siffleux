@@ -5,7 +5,7 @@
 > Siffleux, pronounced siflø, is the French-Canadian name for a groundhog.
 
 # Siffleux
-Siffleux is a Rust-based tunnelling software built on [QUIC](https://en.wikipedia.org/wiki/QUIC). It allows services hosted behind a NAT or a firewall to be reachable without opening ingress ports.
+Siffleux is a Rust-based tunneling software built with [QUIC](https://en.wikipedia.org/wiki/QUIC). It allows services hosted behind a NAT or a firewall to be reachable without opening ingress ports.
 
 ## How it works
 Siffleux works by establishing a persistent QUIC connection between a client (running inside your private network) and a server (running on a reachable host). Because the client initiates the connection to the server, no ingress ports need to be opened on the NAT or the firewall. Once connected, the server forwards all incoming connections to the client through the tunnel. The client relays them to the services in your private network.
