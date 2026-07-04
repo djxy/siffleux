@@ -32,7 +32,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain
+        uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - name: Build
@@ -43,4 +43,4 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: siffleux-${{ matrix.name }}
-          path: /target/${{ matrix.target }}/release/siffleux-cli-${{ matrix.name }}
+          path: target/${{ matrix.target }}/release/siffleux-cli
