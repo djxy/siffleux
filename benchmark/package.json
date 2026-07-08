@@ -1,0 +1,9 @@
+{
+  "scripts": {
+    "vegeta": "node ./src/vegeta_chart.js",
+    "pidstat": "node ./src/pidstat_chart.js"
+  },
+  "dependencies": {
+    "quickchart-js": "^4.0.0"
+  }
+}
