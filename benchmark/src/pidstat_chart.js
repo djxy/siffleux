@@ -18,7 +18,7 @@ const labels = [];
 datasets
   .sort((a, b) => b.cpu.data.length - a.cpu.data.length)[0]
   .cpu.data.forEach((_) => {
-    labels.push(`${labels.length}s`);
+    labels.push(`${labels.length + 1}s`);
   });
 
 await generate_chart(

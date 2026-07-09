@@ -13,7 +13,7 @@ const labels = [];
 datasets
   .sort((a, b) => b.latency_p50.data.length - a.latency_p50.data.length)[0]
   .latency_p50.data.forEach((_) => {
-    labels.push(`${labels.length}s`);
+    labels.push(`${labels.length + 1}s`);
   });
 
 await generate_chart(
