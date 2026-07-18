@@ -186,9 +186,9 @@ pub struct TcpEgressAgrs {
     #[command(flatten)]
     pub egress_args: EgressAgrs,
 
-    /// Address (ip:port) to send the TCP connections received from the ingress
+    /// Address (hostname:port or ip:port) to send the TCP connections received from the ingress
     #[arg(long)]
-    pub target: SocketAddr,
+    pub target: String,
 }
 
 impl Into<EgressConfig> for TcpEgressAgrs {
@@ -198,7 +198,7 @@ impl Into<EgressConfig> for TcpEgressAgrs {
             id: self.egress_args.id,
             ingress_id: self.egress_args.ingress_id,
             auth_key: self.egress_args.auth_key,
-            target_addr: self.target,
+            target: self.target,
         })
     }
 }

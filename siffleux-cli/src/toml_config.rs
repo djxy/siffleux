@@ -94,22 +94,49 @@ impl Into<IngressConfig> for TcpIngressToml {
 
 #[derive(Deserialize, Debug)]
 pub struct ClientToml {
+    pub server: Option<AuthenticationToml>,
+
     pub tcp_egress: Vec<TcpEgressToml>,
 }
 
-impl Into<Vec<EgressConfig>> for ClientToml {
-    fn into(self) -> Vec<EgressConfig> {
-        self.tcp_egress
+impl TryFrom<ClientToml> for Vec<EgressConfig> {
+    type Error = String;
+
+    fn try_from(value: ClientToml) -> Result<Self, String> {
+        value
+            .tcp_egress
             .into_iter()
-            .map(|tcp_egress| tcp_egress.into())
+            .map(|tcp_egress| {
+                let id = tcp_egress.id.unwrap_or_else(|| {
+                    EgressId::try_from(generate_secure_random_key::<16>()).unwrap()
+                });
+                let authentication_config: AuthenticationConfig = tcp_egress
+                    .server
+                    .or_else(|| value.server.clone())
+                    .ok_or_else(|| {
+                        format!(
+                            "TCP egress ingress_id={} doesn't a server to connect to.",
+                            tcp_egress.ingress_id
+                        )
+                    })?
+                    .into();
+
+                Ok(EgressConfig::TCP(TcpEgressConfig {
+                    authentication_config,
+                    id,
+                    ingress_id: tcp_egress.ingress_id,
+                    auth_key: tcp_egress.auth_key,
+                    target: tcp_egress.target,
+                }))
+            })
             .collect()
     }
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 pub struct AuthenticationToml {
     /// Address (hostname:port or ip:port) of the server to connect to
-    pub server: String,
+    pub address: String,
 
     /// Hash of the server certificate to validate
     pub certificate_hash: String,
@@ -125,7 +152,7 @@ impl Into<AuthenticationConfig> for AuthenticationToml {
             .unwrap_or_else(|| DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME.to_owned());
 
         AuthenticationConfig {
-            server: self.server,
+            server: self.address,
             certificate_hash: self.certificate_hash,
             certificate_subject_alt_name,
         }
@@ -134,8 +161,7 @@ impl Into<AuthenticationConfig> for AuthenticationToml {
 
 #[derive(Deserialize, Debug)]
 pub struct TcpEgressToml {
-    #[serde(flatten)]
-    pub authentication_config: AuthenticationToml,
+    pub server: Option<AuthenticationToml>,
 
     /// ID of the egress
     pub id: Option<EgressId>,
@@ -146,22 +172,6 @@ pub struct TcpEgressToml {
     /// Authentication key used to connect to the ingress
     pub auth_key: AuthKey,
 
-    /// Address (ip:port) to send the TCP connections received from the ingress
-    pub target: SocketAddr,
-}
-
-impl Into<EgressConfig> for TcpEgressToml {
-    fn into(self) -> EgressConfig {
-        let id = self
-            .id
-            .unwrap_or_else(|| EgressId::try_from(generate_secure_random_key::<16>()).unwrap());
-
-        EgressConfig::TCP(TcpEgressConfig {
-            authentication_config: self.authentication_config.into(),
-            id,
-            ingress_id: self.ingress_id,
-            auth_key: self.auth_key,
-            target_addr: self.target,
-        })
-    }
+    /// Address (hostname:port or ip:port) to send the TCP connections received from the ingress
+    pub target: String,
 }

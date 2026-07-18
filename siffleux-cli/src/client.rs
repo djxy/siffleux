@@ -33,6 +33,16 @@ async fn launch_tcp_egress(
     client: &Client,
     tcp_egress_config: &TcpEgressConfig,
 ) -> Result<(), String> {
+    let Some(target_address) = lookup_host(&tcp_egress_config.target)
+        .await
+        .map_or_else(|_| None, |mut a| a.next().or(None))
+    else {
+        return Err(format!(
+            "Invalid target address: {}",
+            &tcp_egress_config.target
+        ));
+    };
+
     let (server_address, certificate_hash) =
         prepare_server_config(&tcp_egress_config.authentication_config).await?;
 
@@ -51,7 +61,7 @@ async fn launch_tcp_egress(
         tcp_egress_config.id.clone(),
         Box::new(authentication),
         tcp_egress_config.ingress_id.clone(),
-        tcp_egress_config.target_addr,
+        target_address,
     );
 
     tcp_egress.start().await.unwrap();

@@ -72,6 +72,6 @@ pub struct TcpEgressConfig {
     /// Authentication key used to connect to the ingress
     pub auth_key: AuthKey,
 
-    /// Address (ip:port) to send the TCP connections received from the ingress
-    pub target_addr: SocketAddr,
+    /// Address (hostname:port or ip:port) to send the TCP connections received from the ingress
+    pub target: String,
 }

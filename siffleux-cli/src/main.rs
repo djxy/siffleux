@@ -62,7 +62,7 @@ async fn main() {
             if let Some(config_path) = client_command.config {
                 let contents = read_to_string(config_path).await.unwrap();
                 let client_toml: ClientToml = toml::from_str(&contents).unwrap();
-                let egresses: Vec<EgressConfig> = client_toml.into();
+                let egresses: Vec<EgressConfig> = Vec::try_from(client_toml).unwrap();
 
                 launch_client_with_egresses(egresses).await
             } else if let Some(egress_command) = client_command.egress {
