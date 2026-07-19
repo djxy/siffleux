@@ -15,3 +15,7 @@ siffleux = { version = "0.1.0", path = "../siffleux" }
 rustls-pki-types = "1.14.1"
 toml = "1.1.2"
 serde = { version = "1.0.228", features = ["derive"] }
+
+[[bin]]
+name = "siffleux"
+path = "src/main.rs"

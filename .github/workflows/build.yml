@@ -37,12 +37,12 @@ jobs:
       - name: Build
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
-        run: cargo build --release --target ${{ matrix.target }}
+        run: cargo build --release --target ${{ matrix.target }} --bin siffleux-cli
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: siffleux-${{ matrix.name }}
-          path: target/${{ matrix.target }}/release/siffleux-cli
+          path: target/${{ matrix.target }}/release/siffleux
   docker-build:
     name: Docker build ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
