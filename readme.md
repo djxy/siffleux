@@ -18,8 +18,8 @@ Siffleux is a Rust-based tunneling software built with [QUIC](https://en.wikiped
 - [Quickstart](#quickstart)
 - [How it works](#how-it-works)
   - [Security](#security)
-  - [TCP](#tcp)
-  - [Load balancing](#load-balancing)
+  - [TCP Ingress/Egress](#tcp-ingressegress)
+  - [Load Balancing](#load-balancing)
   - [Reconnection](#reconnection)
 - [Configuration](#configuration)
 
@@ -133,13 +133,25 @@ Endpoints
 └────────────┘
 ```
 
-When a connection hits an ingress endpoint on the server, the data is tunneled through a QUIC stream to the client. The client will proxy the data received to your target services. If multiple egresses bind to the same ingress, the server automatically round-robins traffic across them.
-
 ### Security
 
 Currently Siffleux establishes TLS between the server and client with a self signed certificate and certificate pinning. The server generates the certificate on first launch and logs the certificate hash. The client uses the certificate hash to verify the server identity.
 
 Support for certificates issued by a certificate authority is on the roadmap. I did self signed certificate first, since it is an easier solution for self hosted setup.
+
+### TCP Ingress/Egress
+
+When a TCP connection hits an ingress endpoint on the server, the server opens a new QUIC stream to tunnel the connection to the client. When the client receives a new QUIC stream, it will open a TCP connection to the targeted service.
+
+### Load Balancing
+
+You can create a load balancer by assigning multiple egresses to the same ingress. The ingress will tunnel the connections to the different egresses in a round-robin way. 
+
+If an egress disconnects, the ingress will stop tunneling connections to it. The egress can reconnect to the ingress at any time to restart receiving connections.
+
+### Reconnection
+
+When the QUIC connection ends unexpectedly between the client and the server, the server terminates the TCP connections tunneled to the client. The connections are not kept alive while waiting for the client to reconnect. At the same time, the client tries to reconnect to the server. The wait time between retries increases exponentially, up to a maximum of 30 seconds.
 
 ## Configuration
 
