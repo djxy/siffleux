@@ -2,6 +2,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 use clap::{Args, Parser, Subcommand};
 use siffleux::{AuthKey, EgressId, IngressId, ServerId};
+use tracing::info;
 
 use crate::{
     siffleux_config::{
@@ -12,7 +13,7 @@ use crate::{
 };
 
 #[derive(Parser)]
-#[command(name = "siffleux", version, about = "Does awesome things")]
+#[command(name = "siffleux", version, about = "Create tunnels!")]
 pub struct Cli {
     #[command(subcommand)]
     pub command: Commands,
@@ -104,9 +105,13 @@ pub struct TcpIngressAgrs {
 
 impl Into<IngressConfig> for TcpIngressAgrs {
     fn into(self) -> IngressConfig {
-        let auth_key = self
-            .auth_key
-            .unwrap_or_else(|| AuthKey::try_from(generate_secure_random_key::<32>()).unwrap());
+        let auth_key = self.auth_key.unwrap_or_else(|| {
+            let generate_value = generate_secure_random_key::<32>();
+
+            info!("Generated auth key: {generate_value}");
+
+            AuthKey::try_from(generate_value).unwrap()
+        });
         let id = self
             .id
             .unwrap_or_else(|| IngressId::try_from(generate_secure_random_key::<16>()).unwrap());
@@ -167,7 +172,7 @@ impl Into<AuthenticationConfig> for AuthenticationArgs {
 pub struct EgressAgrs {
     /// ID of the egress
     #[arg(long)]
-    pub id: EgressId,
+    pub id: Option<EgressId>,
 
     /// ID of the ingress to receive ingress connections
     #[arg(long)]
@@ -193,9 +198,14 @@ pub struct TcpEgressAgrs {
 
 impl Into<EgressConfig> for TcpEgressAgrs {
     fn into(self) -> EgressConfig {
+        let id = self
+            .egress_args
+            .id
+            .unwrap_or_else(|| EgressId::try_from(generate_secure_random_key::<16>()).unwrap());
+
         EgressConfig::TCP(TcpEgressConfig {
             authentication_config: self.authentication_args.into(),
-            id: self.egress_args.id,
+            id,
             ingress_id: self.egress_args.ingress_id,
             auth_key: self.egress_args.auth_key,
             target: self.target,
