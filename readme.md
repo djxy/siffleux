@@ -3,8 +3,7 @@
 
 # Siffleux
 
-[![License: MIT](https://img.shields.io/github/license/djxy/siffleux
-)](https://opensource.org/licenses/MIT)
+[![License: MIT](https://img.shields.io/github/license/djxy/siffleux)](https://opensource.org/licenses/MIT)
 [![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://github.com/djxy/siffleux/pkgs/container/siffleux)
 
 > **Siffleux** (pronounced *sif-lø*) is the French-Canadian name for a groundhog.
@@ -135,6 +134,12 @@ Endpoints
 ```
 
 When a connection hits an ingress endpoint on the server, the data is tunneled through a QUIC stream to the client. The client will proxy the data received to your target services. If multiple egresses bind to the same ingress, the server automatically round-robins traffic across them.
+
+### Security
+
+Currently Siffleux establishes TLS between the server and client with a self signed certificate and certificate pinning. The server generates the certificate on first launch and logs the certificate hash. The client uses the certificate hash to verify the server identity.
+
+Support for certificates issued by a certificate authority is on the roadmap. I did self signed certificate first, since it is an easier solution for self hosted setup.
 
 ## Configuration
 
