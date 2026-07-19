@@ -1,8 +1,8 @@
-FROM rust:1.97-alpine AS builder
+FROM rust:1.97-slim AS builder
 
 COPY . .
 
-RUN cargo build --release
+RUN cargo build --release --bin siffleux-cli
 
 FROM gcr.io/distroless/cc-debian13
 
