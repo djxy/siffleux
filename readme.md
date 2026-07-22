@@ -21,6 +21,7 @@ Siffleux is a Rust-based tunneling software built with [QUIC](https://en.wikiped
   - [TCP Ingress/Egress](#tcp-ingressegress)
   - [Load Balancing](#load-balancing)
   - [Reconnection](#reconnection)
+  - [IP v4/v6](#ip-v4v6)
 - [Configuration](#configuration)
 
 ## Features
@@ -152,6 +153,10 @@ If an egress disconnects, the ingress will stop tunneling connections to it. The
 ### Reconnection
 
 When the QUIC connection ends unexpectedly between the client and the server, the server terminates the TCP connections tunneled to the client. The connections are not kept alive while waiting for the client to reconnect. At the same time, the client tries to reconnect to the server. The wait time between retries increases exponentially, up to a maximum of 30 seconds.
+
+### IP v4/v6
+
+Currently Siffleux only supports IPv4. I only tested on IPv4 locally and my ISP doesn't provide an IPv6 address. It is on the roadmap to be fixed.
 
 ## Configuration
 

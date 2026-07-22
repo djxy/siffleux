@@ -1,4 +1,5 @@
-use quinn::{Connection, RecvStream, SendStream, VarInt};
+use bytes::Bytes;
+use quinn::{Connection, RecvStream, SendDatagramError, SendStream, VarInt};
 use std::sync::Arc;
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tokio_util::io::{InspectReader, InspectWriter};
@@ -69,6 +70,14 @@ impl Tunnel {
 
     pub async fn close(&self) {
         self.close_with_reason(CONNECTION_EOF, b"done").await;
+    }
+
+    pub fn send_datagram(&self, bytes: Bytes) -> Result<(), SendDatagramError> {
+        self.inner.connection.send_datagram(bytes)
+    }
+
+    pub async fn read_datagram(&self) -> Result<Bytes, Error> {
+        Ok(self.inner.connection.read_datagram().await?)
     }
 
     pub async fn create_stream(

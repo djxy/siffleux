@@ -1,4 +1,6 @@
-use bytes::{Buf, BufMut};
+use std::net::{IpAddr, SocketAddr};
+
+use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
 use uuid::Uuid;
 
@@ -10,6 +12,9 @@ const AUTH_TYPE: u8 = 0;
 const AUTHENTICATED_TYPE: u8 = 1;
 const PING_TYPE: u8 = 3;
 const PONG_TYPE: u8 = 4;
+
+pub const UDP_IPV4_ORIGIN: u8 = 0;
+pub const UDP_IPV6_ORIGIN: u8 = 1;
 
 pub struct CodecV1;
 
@@ -24,6 +29,31 @@ pub enum FrameV1 {
     },
     Ping,
     Pong,
+}
+
+pub fn to_datagram(socket_addr: SocketAddr, data: &[u8], data_size: usize) -> Bytes {
+    let mut bytes: BytesMut = match socket_addr.ip() {
+        IpAddr::V4(v4) => {
+            let mut bytes = BytesMut::with_capacity(1 + 4 + 2 + data_size);
+
+            bytes.put_slice(&v4.octets());
+            bytes.put_u16(socket_addr.port());
+
+            bytes
+        }
+        IpAddr::V6(v6) => {
+            let mut bytes = BytesMut::with_capacity(1 + 16 + 2 + data_size);
+
+            bytes.put_slice(&v6.octets());
+            bytes.put_u16(socket_addr.port());
+
+            bytes
+        }
+    };
+
+    bytes.put_slice(&data[..data_size]);
+
+    bytes.freeze()
 }
 
 impl Encoder<FrameV1> for CodecV1 {

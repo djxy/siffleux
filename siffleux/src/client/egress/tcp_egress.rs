@@ -180,7 +180,7 @@ impl TcpEgress {
         tokio::spawn(async move {
             let tcp_socket: TcpSocket = 'attempt: {
                 for _ in 0..3 {
-                    if let Ok(socket) = self_clone.get_tcp_socket().await {
+                    if let Ok(socket) = self_clone.get_tcp_socket() {
                         break 'attempt socket;
                     }
                 }
@@ -222,7 +222,7 @@ impl TcpEgress {
         });
     }
 
-    async fn get_tcp_socket(&self) -> Result<TcpSocket, Error> {
+    fn get_tcp_socket(&self) -> Result<TcpSocket, Error> {
         let local_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
         let socket = TcpSocket::new_v4()?;
 
