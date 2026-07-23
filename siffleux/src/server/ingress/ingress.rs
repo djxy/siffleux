@@ -6,7 +6,7 @@ pub trait Ingress: IngressClone + Send + Sync {
 
     fn auth_key(&self) -> &AuthKey;
 
-    fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error>;
+    async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error>;
 
     async fn start(&self) -> Result<(), Error>;
 

@@ -1,4 +1,4 @@
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 
 use bytes::{Buf, BufMut, Bytes, BytesMut};
 use tokio_util::codec::{Decoder, Encoder};
@@ -54,6 +54,34 @@ pub fn to_datagram(socket_addr: SocketAddr, data: &[u8], data_size: usize) -> By
     bytes.put_slice(&data[..data_size]);
 
     bytes.freeze()
+}
+
+pub fn extract_socket_addr_from_datagram(bytes: &mut Bytes) -> Option<SocketAddr> {
+    match bytes.get_u8() {
+        UDP_IPV4_ORIGIN => {
+            let mut octets = [0u8; 4];
+
+            bytes.copy_to_slice(&mut octets);
+
+            Some(SocketAddr::V4(SocketAddrV4::new(
+                Ipv4Addr::from_octets(octets),
+                bytes.get_u16(),
+            )))
+        }
+        UDP_IPV6_ORIGIN => {
+            let mut octets = [0u8; 16];
+
+            bytes.copy_to_slice(&mut octets);
+
+            Some(SocketAddr::V6(SocketAddrV6::new(
+                Ipv6Addr::from_octets(octets),
+                bytes.get_u16(),
+                0,
+                0,
+            )))
+        }
+        _ => None,
+    }
 }
 
 impl Encoder<FrameV1> for CodecV1 {

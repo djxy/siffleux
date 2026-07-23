@@ -199,7 +199,7 @@ impl Server {
                         }
                     };
 
-                    if let Err(e) = ingress.assign_tunnel(tunnel.clone()) {
+                    if let Err(e) = ingress.assign_tunnel(tunnel.clone()).await {
                         error!(
                             "Error while assigning tunnel to ingress_id={}: {e}",
                             ingress.id()

@@ -39,7 +39,7 @@ impl Ingress for TcpIngress {
         &self.inner.auth_key
     }
 
-    fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
+    async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
         let tunnel_clone = tunnel.clone();
         let self_clone = self.clone();
 

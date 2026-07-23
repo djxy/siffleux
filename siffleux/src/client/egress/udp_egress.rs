@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{Ipv4Addr, SocketAddr},
     sync::Arc,
     time::Duration,
 };
 
-use bytes::{Buf, Bytes};
+use bytes::Bytes;
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
     net::UdpSocket,
@@ -23,7 +23,7 @@ use crate::{
     Egress, Error, IngressId, Tunnel,
     authentication::Authentication,
     client::egress::EgressId,
-    frames::v1::{UDP_IPV4_ORIGIN, UDP_IPV6_ORIGIN, to_datagram},
+    frames::v1::{extract_socket_addr_from_datagram, to_datagram},
 };
 
 #[derive(Clone)]
@@ -91,6 +91,11 @@ impl Egress for UdpEgress {
                                         error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
                                     }
                                 }
+                            }
+                        }
+                        origin = origin_expired_receiver.recv() => {
+                            if let Some(origin) = origin {
+                                udp_sockets.remove(&origin);
                             }
                         }
                         _ = tunnel.closed() => {
@@ -187,7 +192,7 @@ impl UdpEgress {
         origin_expired_sender: &UnboundedSender<SocketAddr>,
         cancellation_token: &CancellationToken,
     ) {
-        let Some(origin_socket_addr) = UdpEgress::extract_socket_addr(&mut bytes) else {
+        let Some(origin_socket_addr) = extract_socket_addr_from_datagram(&mut bytes) else {
             return;
         };
 
@@ -213,6 +218,7 @@ impl UdpEgress {
 
                 loop {
                     tokio::select! {
+                        // TODO: Split recv and send into 2 threads
                         bytes_opt = bytes_receiver.recv() => {
                             if let Some(bytes) = bytes_opt {
                                 let _ = udp_socket.send(&bytes[..]).await;
@@ -243,35 +249,9 @@ impl UdpEgress {
                         }
                     }
                 }
+
+                drop(udp_socket);
             });
-        }
-    }
-
-    fn extract_socket_addr(bytes: &mut Bytes) -> Option<SocketAddr> {
-        match bytes.get_u8() {
-            UDP_IPV4_ORIGIN => {
-                let mut octets = [0u8; 4];
-
-                bytes.copy_to_slice(&mut octets);
-
-                Some(SocketAddr::V4(SocketAddrV4::new(
-                    Ipv4Addr::from_octets(octets),
-                    bytes.get_u16(),
-                )))
-            }
-            UDP_IPV6_ORIGIN => {
-                let mut octets = [0u8; 16];
-
-                bytes.copy_to_slice(&mut octets);
-
-                Some(SocketAddr::V6(SocketAddrV6::new(
-                    Ipv6Addr::from_octets(octets),
-                    bytes.get_u16(),
-                    0,
-                    0,
-                )))
-            }
-            _ => None,
         }
     }
 
