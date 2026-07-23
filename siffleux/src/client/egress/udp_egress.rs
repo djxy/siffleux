@@ -205,14 +205,15 @@ impl UdpEgress {
             let cancellation_token = cancellation_token.clone();
             let self_clone = self.clone();
 
-            let _ = bytes_sender.send(bytes);
-            udp_sockets.insert(origin_socket_addr.clone(), bytes_sender);
+            udp_sockets.insert(origin_socket_addr.clone(), bytes_sender.clone());
 
             tokio::spawn(async move {
                 let Ok(udp_socket) = self_clone.get_udp_socket().await else {
                     let _ = origin_expired_sender.send(origin_socket_addr);
                     return;
                 };
+
+                let _ = bytes_sender.send(bytes).await;
 
                 let mut buffer = [0u8; 1500];
 

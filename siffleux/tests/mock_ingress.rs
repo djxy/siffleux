@@ -42,7 +42,7 @@ impl Ingress for MockIngress {
         &self.inner.auth_key
     }
 
-    fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
+    async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
         self.inner.tunnel_sender.send(tunnel).unwrap();
 
         Ok(())

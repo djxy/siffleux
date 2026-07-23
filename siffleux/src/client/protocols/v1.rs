@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use futures_util::{SinkExt, StreamExt};
 use quinn::{Connection, RecvStream, SendStream};
-use tokio::time::sleep;
+use tokio::time::{Instant, sleep};
 use tokio_util::codec::{FramedRead, FramedWrite};
 use tracing::{debug, error};
 
@@ -121,7 +121,7 @@ pub fn handle_client_protocol_v1_command_stream(
 
                     debug!(tunnel_id=%tunnel_id, "Ping");
 
-                    ping_delay.as_mut().reset(tokio::time::Instant::now() + Duration::from_secs(PING_INTERVAL_SEC));
+                    ping_delay.as_mut().reset(Instant::now() + Duration::from_secs(PING_INTERVAL_SEC));
                 }
                 frame_opt = recv_framed.next() => {
                     match frame_opt {

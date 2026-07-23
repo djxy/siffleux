@@ -36,6 +36,7 @@ pub fn to_datagram(socket_addr: SocketAddr, data: &[u8], data_size: usize) -> By
         IpAddr::V4(v4) => {
             let mut bytes = BytesMut::with_capacity(1 + 4 + 2 + data_size);
 
+            bytes.put_u8(UDP_IPV4_ORIGIN);
             bytes.put_slice(&v4.octets());
             bytes.put_u16(socket_addr.port());
 
@@ -44,6 +45,7 @@ pub fn to_datagram(socket_addr: SocketAddr, data: &[u8], data_size: usize) -> By
         IpAddr::V6(v6) => {
             let mut bytes = BytesMut::with_capacity(1 + 16 + 2 + data_size);
 
+            bytes.put_u8(UDP_IPV6_ORIGIN);
             bytes.put_slice(&v6.octets());
             bytes.put_u16(socket_addr.port());
 
