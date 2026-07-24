@@ -13,15 +13,16 @@
 Siffleux is a Rust-based tunneling software built with [QUIC](https://en.wikipedia.org/wiki/QUIC). Expose services hosted behind a NAT to the internet without opening ingress ports.
 
 - [Features](#features)
-  - [Protocols supported](#protocols-supported) 
+  - [Protocols](#protocols) 
+  - [IP v4/v6](#ip-v4v6)
 - [Installation](#installation)
 - [Quickstart](#quickstart)
 - [How it works](#how-it-works)
   - [Security](#security)
   - [TCP Ingress/Egress](#tcp-ingressegress)
+  - [UDP Ingress/Egress](#udp-ingressegress)
   - [Load Balancing](#load-balancing)
   - [Reconnection](#reconnection)
-  - [IP v4/v6](#ip-v4v6)
 - [Configuration](#configuration)
 
 ## Features
@@ -32,11 +33,15 @@ Siffleux is a Rust-based tunneling software built with [QUIC](https://en.wikiped
 - **Multi-platform**: Binaries for Linux and macOS and Docker images.
 - **Load Balancing**: Connect multiple egresses per ingress endpoint to automatically distribute traffic across multiple instances.
 
-### Protocols supported
+### Protocols
 - **TCP**: TCP ingress and egress are supported.
-- **UDP**: On the roadmap.
+- **UDP**: UDP ingress and egress are supported.
 
 **Note**: Layer 7 protocols(HTTP, SSH, etc...) are to be determined. I'm focusing on layer 4 protocols for now.
+
+### IP v4/v6
+
+Currently Siffleux **only supports IPv4**. I only tested on IPv4 locally and my ISP doesn't provide an IPv6 address. It is on the roadmap to be fixed.
 
 ## Installation
 
@@ -144,6 +149,12 @@ Support for certificates issued by a certificate authority is on the roadmap. I 
 
 When a TCP connection hits an ingress endpoint on the server, the server opens a new QUIC stream to tunnel the connection to the client. When the client receives a new QUIC stream, it will open a TCP connection to the targeted service.
 
+### UDP Ingress/Egress
+
+When a UDP datagram hits an ingress endpoint on the server, the server tunnels the datagram to the client using the QUIC unreliable datagrams extension([RFC 9221](https://datatracker.ietf.org/doc/html/rfc9221)). When the client receives a datagram, it will send it to the targeted service. 
+
+**Note:** As with UDP, delivery and ordering of datagrams are not guaranteed.
+
 ### Load Balancing
 
 You can create a load balancer by assigning multiple egresses to the same ingress. The ingress will tunnel the connections to the different egresses in a round-robin way. 
@@ -153,10 +164,6 @@ If an egress disconnects, the ingress will stop tunneling connections to it. The
 ### Reconnection
 
 When the QUIC connection ends unexpectedly between the client and the server, the server terminates the TCP connections tunneled to the client. The connections are not kept alive while waiting for the client to reconnect. At the same time, the client tries to reconnect to the server. The wait time between retries increases exponentially, up to a maximum of 30 seconds.
-
-### IP v4/v6
-
-Currently Siffleux only supports IPv4. I only tested on IPv4 locally and my ISP doesn't provide an IPv6 address. It is on the roadmap to be fixed.
 
 ## Configuration
 

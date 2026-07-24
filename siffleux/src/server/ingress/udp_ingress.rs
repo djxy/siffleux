@@ -20,7 +20,7 @@ pub struct UdpIngress {
 struct UdpIngressInner {
     id: IngressId,
     auth_key: AuthKey,
-    /// Socket address the ingress will listen for UDP packets
+    /// Socket address the ingress will listen for UDP datagrams
     socket_addr: SocketAddr,
     udp_socket: tokio::sync::RwLock<Option<(Arc<UdpSocket>, CancellationToken)>>,
     tunnels: RwLock<Vec<Tunnel>>,
@@ -70,7 +70,7 @@ impl Ingress for UdpIngress {
                                 error!(
                                     ingress_id = %self_clone.id(),
                                     tunnel_id = %&tunnel_clone.id(),
-                                    "Error while receiving UDP packet from tunnel: {:?}",
+                                    "Error while receiving UDP datagram from tunnel: {:?}",
                                     e
                                 );
                             }
@@ -140,7 +140,7 @@ impl Ingress for UdpIngress {
                 .await;
         });
 
-        info!(ingress_id = %self.id(), "Ready to receive UDP packets on {udp_socket_addr}.");
+        info!(ingress_id = %self.id(), "Ready to receive UDP datagrams on {udp_socket_addr}.");
 
         Ok(())
     }

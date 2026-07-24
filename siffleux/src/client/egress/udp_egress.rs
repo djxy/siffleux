@@ -231,7 +231,7 @@ impl UdpEgress {
                                     let _ = tunnel.send_datagram(to_datagram(origin_socket_addr, &buffer, len));
                                 }
                                 Err(e) => {
-                                    error!(egress_id = %self_clone.id(), "Error while receiving UDP packet: {:?}", e);
+                                    error!(egress_id = %self_clone.id(), "Error while receiving UDP datagram: {:?}", e);
                                 }
                             }
                         }
