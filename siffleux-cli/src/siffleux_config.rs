@@ -27,11 +27,24 @@ pub struct ServerConfig {
 #[derive(Debug)]
 pub enum IngressConfig {
     TCP(TcpIngressConfig),
+    UDP(UdpIngressConfig),
 }
 
 #[derive(Debug)]
 pub struct TcpIngressConfig {
     /// Socket address the TCP ingress will listen for TCP connections
+    pub addr: SocketAddr,
+
+    /// ID of the ingress
+    pub id: IngressId,
+
+    /// Authentication key used to connect to the ingress.
+    pub auth_key: AuthKey,
+}
+
+#[derive(Debug)]
+pub struct UdpIngressConfig {
+    /// Socket address the UDP ingress will listen for UDP datagrams
     pub addr: SocketAddr,
 
     /// ID of the ingress
@@ -58,6 +71,7 @@ pub struct AuthenticationConfig {
 
 pub enum EgressConfig {
     TCP(TcpEgressConfig),
+    UDP(UdpEgressConfig),
 }
 
 pub struct TcpEgressConfig {
@@ -73,5 +87,21 @@ pub struct TcpEgressConfig {
     pub auth_key: AuthKey,
 
     /// Address (hostname:port or ip:port) to send the TCP connections received from the ingress
+    pub target: String,
+}
+
+pub struct UdpEgressConfig {
+    pub authentication_config: AuthenticationConfig,
+
+    /// ID of the egress
+    pub id: EgressId,
+
+    /// ID of the ingress to receive ingress connections
+    pub ingress_id: IngressId,
+
+    /// Authentication key used to connect to the ingress
+    pub auth_key: AuthKey,
+
+    /// Address (hostname:port or ip:port) to send the UDP datagrams received from the ingress
     pub target: String,
 }

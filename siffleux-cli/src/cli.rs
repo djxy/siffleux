@@ -7,7 +7,7 @@ use tracing::info;
 use crate::{
     siffleux_config::{
         AuthenticationConfig, DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME, EgressConfig, IngressConfig,
-        ServerConfig, TcpEgressConfig, TcpIngressConfig,
+        ServerConfig, TcpEgressConfig, TcpIngressConfig, UdpEgressConfig, UdpIngressConfig,
     },
     utils::generate_secure_random_key,
 };
@@ -50,11 +50,15 @@ pub struct ServerCommand {
 pub enum IngressCommand {
     /// Start a server with a TCP ingress
     Tcp(TcpIngressAgrs),
+
+    /// Start a server with a UDP ingress
+    Udp(UdpIngressAgrs),
 }
 
 #[derive(Args)]
 pub struct ServerArgs {
     /// ID to identify the server
+    #[arg(long)]
     pub id: Option<ServerId>,
 
     /// IP address the server will listen for client connections
@@ -124,6 +128,46 @@ impl Into<IngressConfig> for TcpIngressAgrs {
     }
 }
 
+#[derive(Args)]
+pub struct UdpIngressAgrs {
+    /// IP address the UDP ingress will listen for UDP datagrams
+    #[arg(long, default_value_t = IpAddr::V4(Ipv4Addr::UNSPECIFIED))]
+    pub ip: IpAddr,
+
+    /// Port the UDP ingress will listen for UDP datagrams
+    #[arg(long, default_value_t = 3000)]
+    pub port: u16,
+
+    /// ID of the ingress
+    #[arg(long)]
+    pub id: Option<IngressId>,
+
+    /// Authentication key used to connect to the ingress.
+    #[arg(long)]
+    pub auth_key: Option<AuthKey>,
+}
+
+impl Into<IngressConfig> for UdpIngressAgrs {
+    fn into(self) -> IngressConfig {
+        let auth_key = self.auth_key.unwrap_or_else(|| {
+            let generate_value = generate_secure_random_key::<32>();
+
+            info!("Generated auth key: {generate_value}");
+
+            AuthKey::try_from(generate_value).unwrap()
+        });
+        let id = self
+            .id
+            .unwrap_or_else(|| IngressId::try_from(generate_secure_random_key::<16>()).unwrap());
+
+        IngressConfig::UDP(UdpIngressConfig {
+            addr: SocketAddr::new(self.ip, self.port),
+            id,
+            auth_key,
+        })
+    }
+}
+
 // #########################
 // Client CLI
 // #########################
@@ -141,6 +185,9 @@ pub struct ClientCommand {
 pub enum EgressCommand {
     /// Start a TCP egress to redirect TCP connections to a target
     Tcp(TcpEgressAgrs),
+
+    /// Start a UDP egress to redirect UDP datagrams to a target
+    Udp(UdpEgressAgrs),
 }
 
 #[derive(Args)]
@@ -204,6 +251,36 @@ impl Into<EgressConfig> for TcpEgressAgrs {
             .unwrap_or_else(|| EgressId::try_from(generate_secure_random_key::<16>()).unwrap());
 
         EgressConfig::TCP(TcpEgressConfig {
+            authentication_config: self.authentication_args.into(),
+            id,
+            ingress_id: self.egress_args.ingress_id,
+            auth_key: self.egress_args.auth_key,
+            target: self.target,
+        })
+    }
+}
+
+#[derive(Args)]
+pub struct UdpEgressAgrs {
+    #[command(flatten)]
+    pub authentication_args: AuthenticationArgs,
+
+    #[command(flatten)]
+    pub egress_args: EgressAgrs,
+
+    /// Address (hostname:port or ip:port) to send the UDP datagrams received from the ingress
+    #[arg(long)]
+    pub target: String,
+}
+
+impl Into<EgressConfig> for UdpEgressAgrs {
+    fn into(self) -> EgressConfig {
+        let id = self
+            .egress_args
+            .id
+            .unwrap_or_else(|| EgressId::try_from(generate_secure_random_key::<16>()).unwrap());
+
+        EgressConfig::UDP(UdpEgressConfig {
             authentication_config: self.authentication_args.into(),
             id,
             ingress_id: self.egress_args.ingress_id,

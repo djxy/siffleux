@@ -1,9 +1,9 @@
-use siffleux::{Ingress, IngressClone, Server, TcpIngress};
+use siffleux::{Ingress, IngressClone, Server, TcpIngress, UdpIngress};
 
 use crate::{
     siffleux_config::{
-        IngressConfig::{self, TCP},
-        ServerConfig, TcpIngressConfig,
+        IngressConfig::{self, TCP, UDP},
+        ServerConfig, TcpIngressConfig, UdpIngressConfig,
     },
     utils::{load_or_generate_self_signed_certificate, wait_for_shutdown_signal},
 };
@@ -31,6 +31,11 @@ pub async fn launch_server_with_ingresses(
 
                 server.assign_ingress(tcp_ingress.clone_box()).unwrap();
             }
+            UDP(udp_ingress_config) => {
+                let udp_ingress = launch_udp_ingress(udp_ingress_config).await;
+
+                server.assign_ingress(udp_ingress.clone_box()).unwrap();
+            }
         }
     }
 
@@ -49,4 +54,16 @@ async fn launch_tcp_ingress(tcp_ingress_config: TcpIngressConfig) -> TcpIngress 
     tcp_ingress.start().await.unwrap();
 
     tcp_ingress
+}
+
+async fn launch_udp_ingress(udp_ingress_config: UdpIngressConfig) -> UdpIngress {
+    let udp_ingress = UdpIngress::new(
+        udp_ingress_config.id.clone(),
+        udp_ingress_config.auth_key.clone(),
+        udp_ingress_config.addr,
+    );
+
+    udp_ingress.start().await.unwrap();
+
+    udp_ingress
 }

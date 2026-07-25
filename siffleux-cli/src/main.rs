@@ -55,6 +55,13 @@ async fn main() {
                         )
                         .await;
                     }
+                    IngressCommand::Udp(udp_ingress_args) => {
+                        launch_server_with_ingresses(
+                            server_command.server_args.into(),
+                            vec![udp_ingress_args.into()],
+                        )
+                        .await;
+                    }
                 }
             }
         }
@@ -69,6 +76,9 @@ async fn main() {
                 match egress_command {
                     EgressCommand::Tcp(tcp_egress_args) => {
                         launch_client_with_egresses(vec![tcp_egress_args.into()]).await
+                    }
+                    EgressCommand::Udp(udp_egress_args) => {
+                        launch_client_with_egresses(vec![udp_egress_args.into()]).await
                     }
                 }
             }
