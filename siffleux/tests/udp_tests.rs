@@ -119,15 +119,17 @@ async fn test_send_and_receive_data() {
         .await
         .unwrap();
 
-    let mut buffer = [0u8; 14];
+    let mut buffer = [0u8; 16];
 
-    udp_socket.send(b"Hello, server!").await.unwrap();
-    udp_socket.recv(&mut buffer).await.unwrap();
+    -- // Broken!!!
+    for i in 0..3u8 {
+        let msg = format!("Hello, server! {}", i);
+        udp_socket.send(msg.as_bytes()).await.unwrap();
 
-    assert_eq!(
-        "Hello, server!",
-        &String::from_utf8(buffer[..].to_vec()).unwrap()
-    );
+        let n = udp_socket.recv(&mut buffer).await.unwrap();
+
+        assert_eq!(msg, String::from_utf8(buffer[..n].to_vec()).unwrap());
+    }
 
     client.stop().await.unwrap();
     server.stop().await.unwrap();
