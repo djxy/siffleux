@@ -121,7 +121,6 @@ async fn test_send_and_receive_data() {
 
     let mut buffer = [0u8; 16];
 
-    -- // Broken!!!
     for i in 0..3u8 {
         let msg = format!("Hello, server! {}", i);
         udp_socket.send(msg.as_bytes()).await.unwrap();

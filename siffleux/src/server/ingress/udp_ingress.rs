@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use parking_lot::RwLock;
+use socket2::{Domain, Protocol, Socket, Type};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -123,7 +124,21 @@ impl Ingress for UdpIngress {
 
             info!(ingress_id = %self.id(), "Starting UDP ingress");
 
-            let udp_socket_arc = Arc::new(UdpSocket::bind(self.inner.socket_addr).await?);
+            let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+
+            #[cfg(unix)]
+            socket.set_reuse_port(true)?;
+            socket.set_reuse_address(true)?;
+            socket.set_nonblocking(true)?;
+
+            let buffer_size = 4 * 1024 * 1024; // 4mb
+
+            socket.set_recv_buffer_size(buffer_size)?;
+            socket.set_send_buffer_size(buffer_size)?;
+
+            socket.bind(&self.inner.socket_addr.into())?;
+
+            let udp_socket_arc = Arc::new(UdpSocket::from_std(socket.into())?);
             let cancellation_token = CancellationToken::new();
 
             *udp_socket = Some((udp_socket_arc.clone(), cancellation_token.clone()));

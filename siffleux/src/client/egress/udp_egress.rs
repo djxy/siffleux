@@ -197,9 +197,9 @@ impl UdpEgress {
         };
 
         if let Some(bytes_sender) = udp_sockets.get(&origin_socket_addr) {
-            let _ = bytes_sender.send(bytes);
+            let _ = bytes_sender.try_send(bytes);
         } else {
-            let (bytes_sender, mut bytes_receiver) = mpsc::channel::<Bytes>(8);
+            let (bytes_sender, mut bytes_receiver) = mpsc::channel::<Bytes>(16);
             let tunnel = tunnel.clone();
             let origin_expired_sender = origin_expired_sender.clone();
             let cancellation_token = cancellation_token.clone();
@@ -207,13 +207,13 @@ impl UdpEgress {
 
             udp_sockets.insert(origin_socket_addr.clone(), bytes_sender.clone());
 
+            let _ = bytes_sender.try_send(bytes);
+
             tokio::spawn(async move {
                 let Ok(udp_socket) = self_clone.get_udp_socket().await else {
                     let _ = origin_expired_sender.send(origin_socket_addr);
                     return;
                 };
-
-                let _ = bytes_sender.send(bytes).await;
 
                 let mut buffer = [0u8; 1500];
 
@@ -264,6 +264,12 @@ impl UdpEgress {
         socket.set_reuse_port(true)?;
         socket.set_reuse_address(true)?;
         socket.set_nonblocking(true)?;
+
+        let buffer_size = 4 * 1024 * 1024; // 4mb
+
+        socket.set_recv_buffer_size(buffer_size)?;
+        socket.set_send_buffer_size(buffer_size)?;
+
         socket.bind(&local_addr.into())?;
 
         let udp_socket = UdpSocket::from_std(socket.into())?;
