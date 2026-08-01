@@ -68,12 +68,21 @@ impl Ingress for UdpIngress {
                                 };
                             }
                             Err(e) => {
-                                error!(
-                                    ingress_id = %self_clone.id(),
-                                    tunnel_id = %&tunnel_clone.id(),
-                                    "Error while receiving UDP datagram from tunnel: {:?}",
-                                    e
-                                );
+                                if matches!(e, Error::ClosedTunnel) {
+                                    warn!(
+                                        ingress_id = %self_clone.id(),
+                                        tunnel_id = %&tunnel_clone.id(),
+                                        "Tunnel closed. Stopping receiving from it."
+                                    );
+                                    return;
+                                } else {
+                                    error!(
+                                        ingress_id = %self_clone.id(),
+                                        tunnel_id = %&tunnel_clone.id(),
+                                        "Error while receiving UDP datagram from tunnel: {:?}",
+                                        e
+                                    );
+                                }
                             }
                         }
                     }
