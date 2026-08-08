@@ -10,7 +10,7 @@
 
 </div>
 
-Siffleux is a Rust-based tunneling software built with [QUIC](https://en.wikipedia.org/wiki/QUIC). Expose services hosted behind a NAT to the internet without opening ingress ports.
+Siffleux is a lightweight and self-hosted tunnel that exposes services hosted behind a NAT to the internet without opening ingress ports.
 
 - [Features](#features)
   - [Protocols](#protocols)
@@ -30,7 +30,7 @@ Siffleux is a Rust-based tunneling software built with [QUIC](https://en.wikiped
 
 - **No Open Ports**: The client connects to the server, so nothing needs to be configured on your NAT or firewall.
 - **High Performance**: Handles 10,000+ concurrent connections and multi-gigabit throughput per second.
-- **Security**: Traffic is encrypted end-to-end using QUIC's built-in TLS 1.3
+- **Security**: Traffic is encrypted end-to-end using [QUIC](https://en.wikipedia.org/wiki/QUIC) built-in TLS 1.3
 - **Multi-platform**: Binaries for Linux and macOS and Docker images.
 - **Load Balancing**: Connect multiple egresses per ingress endpoint to automatically distribute traffic across multiple instances.
 
