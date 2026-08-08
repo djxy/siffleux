@@ -2,6 +2,15 @@ name: Build
 on:
   workflow_dispatch:
 jobs:
+  get-cargo-version:
+    name: Get Cargo version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - id: version
+        run: echo "VERSION=$(yq '.package.version' Cargo.toml)" >> $GITHUB_OUTPUT
+    outputs:
+      version: ${{ steps.version.outputs.version }}
   binary-build:
     name: Binary build ${{ matrix.name }}
     runs-on: ${{ matrix.os }}
@@ -38,11 +47,14 @@ jobs:
         env:
           RUSTFLAGS: ${{ matrix.rustflags }}
         run: cargo build --release --target ${{ matrix.target }} --bin siffleux
+      - name: Rename binary
+        run: |
+          mv target/${{ matrix.target }}/release/siffleux siffleux-${{ matrix.name }}
       - name: Upload artifact
         uses: actions/upload-artifact@v7
         with:
           name: siffleux-${{ matrix.name }}
-          path: target/${{ matrix.target }}/release/siffleux
+          path: siffleux-${{ matrix.name }}
   docker-build:
     name: Docker build ${{ matrix.arch }}
     runs-on: ${{ matrix.os }}
@@ -97,7 +109,7 @@ jobs:
           retention-days: 1
   docker-merge:
     name: Merge multi-arch manifest
-    needs: docker-build
+    needs: [docker-build, get-cargo-version]
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -124,7 +136,7 @@ jobs:
           images: ghcr.io/${{ github.repository }}
           tags: |
             type=raw,value=latest
-            type=sha,format=short
+            type=raw,value=${{ needs.get-cargo-version.outputs.version }}
       - name: Create manifest list and push
         uses: docker/build-push-action@v7
         with:
@@ -133,7 +145,32 @@ jobs:
           build-contexts: |
             digests=/tmp/digests
           outputs: |
-            type=image,name=ghcr.io/${{ github.repository }},push=true
-      - name: Inspect image
+            cd /tmp/digests
+            DIGESTS=$(ls | xargs -I {} echo "ghcr.io/${{ github.repository }}@sha256:{}")
+            TAGS=$(echo "${{ steps.meta.outputs.tags }}" | xargs -I {} echo "-t {}")
+            docker buildx imagetools create $TAGS $DIGESTS
+  release:
+    name: Tag & Create GitHub Release
+    needs: [binary-build, docker-merge, get-cargo-version]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - name: Tag the branch
         run: |
-          docker buildx imagetools inspect ghcr.io/${{ github.repository }}:latest
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git tag ${{ needs.get-cargo-version.outputs.version }}
+          git push origin ${{ needs.get-cargo-version.outputs.version }} --force
+      - name: Download built binary artifacts
+        uses: actions/download-artifact@v8
+        with:
+          path: release-artifacts
+          pattern: siffleux-*
+      - name: Create GitHub Release and attach binaries
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ needs.get-cargo-version.outputs.version }}
+          files: release-artifacts/**/*
+          generate_release_notes: false
