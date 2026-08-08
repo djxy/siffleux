@@ -1,4 +1,7 @@
-use std::net::{IpAddr, SocketAddr};
+use std::{
+    net::{IpAddr, SocketAddr},
+    path::PathBuf,
+};
 
 use serde::Deserialize;
 use siffleux::{AuthKey, EgressId, IngressId, ServerId};
@@ -27,8 +30,8 @@ pub struct ServerToml {
     /// Port the server will listen for client connections
     pub port: Option<u16>,
 
-    /// Certificate subject alt name
-    pub certificate_subject_alt_name: Option<String>,
+    /// TLS configs
+    pub tls: Option<TlsToml>,
 
     #[serde(default)]
     pub tcp_ingress: Vec<TcpIngressToml>,
@@ -76,6 +79,18 @@ impl Into<(ServerConfig, Vec<IngressConfig>)> for ServerToml {
             ingress_configs,
         )
     }
+}
+
+#[derive(Deserialize, Debug, Clone)]
+pub struct TlsToml {
+    /// Path to the PEM certificate
+    pub certificate: PathBuf,
+
+    /// Path to the PEM private key
+    pub private_key: PathBuf,
+
+    /// Certificate subject alt name
+    pub subject_alt_name: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]

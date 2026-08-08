@@ -1,4 +1,7 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
+};
 
 use siffleux::{AuthKey, EgressId, IngressId, ServerId};
 
@@ -20,8 +23,20 @@ pub struct ServerConfig {
     /// Socket address the server will listen for client connections
     pub client_addr: SocketAddr,
 
+    /// TLS configs
+    pub tls: TlsToml,
+}
+
+#[derive(Debug, Clone)]
+pub struct TlsToml {
+    /// Path to the PEM certificate
+    pub certificate: PathBuf,
+
+    /// Path to the PEM private key
+    pub private_key: PathBuf,
+
     /// Certificate subject alt name
-    pub cert_subject_alt_name: String,
+    pub subject_alt_name: String,
 }
 
 #[derive(Debug)]
