@@ -7,7 +7,9 @@ use siffleux::{AuthKey, EgressId, IngressId, ServerId};
 
 pub const DEFAULT_SERVER_IP: IpAddr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
 pub const DEFAULT_SERVER_PORT: u16 = 8765;
-pub const DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME: &'static str = "self-host.siffleux.dev";
+pub const DEFAULT_SERVER_TLS_SUBJECT_ALT_NAME: &'static str = "self-host.siffleux.dev";
+pub const DEFAULT_SERVER_TLS_CERTIFICATE_FILE: &'static str = "siffleux-cert.pem";
+pub const DEFAULT_SERVER_TLS_PRIVATE_KEY_FILE: &'static str = "siffleux-key.pem";
 
 pub const DEFAULT_INGRESS_IP: IpAddr = IpAddr::V4(Ipv4Addr::UNSPECIFIED);
 
@@ -24,19 +26,19 @@ pub struct ServerConfig {
     pub client_addr: SocketAddr,
 
     /// TLS configs
-    pub tls: TlsToml,
+    pub tls: TlsConfig,
 }
 
 #[derive(Debug, Clone)]
-pub struct TlsToml {
+pub struct TlsConfig {
     /// Path to the PEM certificate
-    pub certificate: PathBuf,
+    pub cert_pem_path: PathBuf,
 
     /// Path to the PEM private key
-    pub private_key: PathBuf,
+    pub key_pem_path: PathBuf,
 
     /// Certificate subject alt name
-    pub subject_alt_name: String,
+    pub cert_subject_alt_name: String,
 }
 
 #[derive(Debug)]
@@ -78,10 +80,10 @@ pub struct AuthenticationConfig {
     pub server: String,
 
     /// Hash of the server certificate to validate
-    pub certificate_hash: String,
+    pub cert_hash: String,
 
     /// Certificate subject alt name
-    pub certificate_subject_alt_name: String,
+    pub cert_subject_alt_name: String,
 }
 
 pub enum EgressConfig {

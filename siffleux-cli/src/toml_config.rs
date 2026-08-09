@@ -8,9 +8,10 @@ use siffleux::{AuthKey, EgressId, IngressId, ServerId};
 
 use crate::{
     siffleux_config::{
-        AuthenticationConfig, DEFAULT_INGRESS_IP, DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME,
-        DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT, EgressConfig, IngressConfig, ServerConfig,
-        TcpEgressConfig, TcpIngressConfig, UdpEgressConfig, UdpIngressConfig,
+        AuthenticationConfig, DEFAULT_INGRESS_IP, DEFAULT_SERVER_IP, DEFAULT_SERVER_PORT,
+        DEFAULT_SERVER_TLS_CERTIFICATE_FILE, DEFAULT_SERVER_TLS_PRIVATE_KEY_FILE,
+        DEFAULT_SERVER_TLS_SUBJECT_ALT_NAME, EgressConfig, IngressConfig, ServerConfig,
+        TcpEgressConfig, TcpIngressConfig, TlsConfig, UdpEgressConfig, UdpIngressConfig,
     },
     utils::generate_secure_random_key,
 };
@@ -47,10 +48,6 @@ impl Into<(ServerConfig, Vec<IngressConfig>)> for ServerToml {
             .unwrap_or_else(|| ServerId::try_from(generate_secure_random_key::<16>()).unwrap());
         let ip = self.ip.unwrap_or_else(|| DEFAULT_SERVER_IP);
         let port = self.port.unwrap_or_else(|| DEFAULT_SERVER_PORT);
-        let cert_subject_alt_name = self
-            .certificate_subject_alt_name
-            .unwrap_or_else(|| DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME.to_owned());
-
         let mut ingress_configs: Vec<IngressConfig> =
             Vec::with_capacity(self.tcp_ingress.len() + self.udp_ingress.len());
 
@@ -74,23 +71,36 @@ impl Into<(ServerConfig, Vec<IngressConfig>)> for ServerToml {
             ServerConfig {
                 id,
                 client_addr: SocketAddr::new(ip, port),
-                cert_subject_alt_name,
+                tls: self.tls.map_or_else(
+                    || TlsConfig {
+                        cert_pem_path: PathBuf::from(DEFAULT_SERVER_TLS_CERTIFICATE_FILE),
+                        key_pem_path: PathBuf::from(DEFAULT_SERVER_TLS_PRIVATE_KEY_FILE),
+                        cert_subject_alt_name: DEFAULT_SERVER_TLS_SUBJECT_ALT_NAME.to_owned(),
+                    },
+                    |tls| TlsConfig {
+                        cert_pem_path: tls.cert_pem_path,
+                        key_pem_path: tls.key_pem_path,
+                        cert_subject_alt_name: tls
+                            .cert_subject_alt_name
+                            .unwrap_or_else(|| DEFAULT_SERVER_TLS_SUBJECT_ALT_NAME.to_owned()),
+                    },
+                ),
             },
             ingress_configs,
         )
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
+#[derive(Deserialize, Debug)]
 pub struct TlsToml {
     /// Path to the PEM certificate
-    pub certificate: PathBuf,
+    pub cert_pem_path: PathBuf,
 
     /// Path to the PEM private key
-    pub private_key: PathBuf,
+    pub key_pem_path: PathBuf,
 
     /// Certificate subject alt name
-    pub subject_alt_name: Option<String>,
+    pub cert_subject_alt_name: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -244,22 +254,22 @@ pub struct AuthenticationToml {
     pub address: String,
 
     /// Hash of the server certificate to validate
-    pub certificate_hash: String,
+    pub cert_hash: String,
 
     /// Certificate subject alt name
-    pub certificate_subject_alt_name: Option<String>,
+    pub cert_subject_alt_name: Option<String>,
 }
 
 impl Into<AuthenticationConfig> for AuthenticationToml {
     fn into(self) -> AuthenticationConfig {
-        let certificate_subject_alt_name = self
-            .certificate_subject_alt_name
-            .unwrap_or_else(|| DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME.to_owned());
+        let cert_subject_alt_name = self
+            .cert_subject_alt_name
+            .unwrap_or_else(|| DEFAULT_SERVER_TLS_SUBJECT_ALT_NAME.to_owned());
 
         AuthenticationConfig {
             server: self.address,
-            certificate_hash: self.certificate_hash,
-            certificate_subject_alt_name,
+            cert_hash: self.cert_hash,
+            cert_subject_alt_name,
         }
     }
 }

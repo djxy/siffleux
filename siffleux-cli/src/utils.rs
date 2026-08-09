@@ -11,21 +11,21 @@ use siffleux::{generate_self_signed_certificate, hash_certificate};
 use tokio::signal::unix::{SignalKind, signal};
 use tracing::info;
 
+use crate::siffleux_config::TlsConfig;
+
 pub const BASE64_ENGINE: engine::GeneralPurpose =
     engine::GeneralPurpose::new(&alphabet::URL_SAFE, general_purpose::PAD);
 
-const SIFFLEUX_CERT_FILE: &'static str = "siffleux-cert.pem";
-const SIFFLEUX_KEY_FILE: &'static str = "siffleux-key.pem";
-
 pub async fn load_or_generate_self_signed_certificate(
-    cert_subject_alt_name: &str,
+    tls_config: &TlsConfig,
 ) -> (
     CertificateDer<'static>,
     PrivatePkcs8KeyDer<'static>,
     Vec<u8>,
 ) {
-    let cert_file_res = rustls_pki_types::CertificateDer::from_pem_file(SIFFLEUX_CERT_FILE);
-    let key_file_res = rustls_pki_types::PrivatePkcs8KeyDer::from_pem_file(SIFFLEUX_KEY_FILE);
+    let cert_file_res = rustls_pki_types::CertificateDer::from_pem_file(&tls_config.cert_pem_path);
+    let key_file_res =
+        rustls_pki_types::PrivatePkcs8KeyDer::from_pem_file(&tls_config.key_pem_path);
 
     let (cert, key, cert_hash) = if let Ok(cert) = cert_file_res
         && let Ok(key) = key_file_res
@@ -37,14 +37,16 @@ pub async fn load_or_generate_self_signed_certificate(
         (cert, key, cert_hash)
     } else {
         let (cert, key, cert_hash, cert_pem, key_pem) =
-            generate_self_signed_certificate(cert_subject_alt_name);
+            generate_self_signed_certificate(&tls_config.cert_subject_alt_name);
 
         info!("Created self signed certificate");
 
-        tokio::fs::write(SIFFLEUX_CERT_FILE, cert_pem)
+        tokio::fs::write(&tls_config.cert_pem_path, cert_pem)
             .await
             .unwrap();
-        tokio::fs::write(SIFFLEUX_KEY_FILE, key_pem).await.unwrap();
+        tokio::fs::write(&tls_config.key_pem_path, key_pem)
+            .await
+            .unwrap();
 
         (cert, key, cert_hash)
     };

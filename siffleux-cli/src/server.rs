@@ -13,7 +13,7 @@ pub async fn launch_server_with_ingresses(
     ingress_configs: Vec<IngressConfig>,
 ) {
     let (cert_der, key, certificate_hash) =
-        load_or_generate_self_signed_certificate(&server_config.cert_subject_alt_name).await;
+        load_or_generate_self_signed_certificate(&server_config.tls).await;
     let server = Server::new_with_certificate(
         server_config.id,
         cert_der.clone(),

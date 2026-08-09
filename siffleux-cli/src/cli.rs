@@ -1,4 +1,7 @@
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::{
+    net::{IpAddr, Ipv4Addr, SocketAddr},
+    path::PathBuf,
+};
 
 use clap::{Args, Parser, Subcommand};
 use siffleux::{AuthKey, EgressId, IngressId, ServerId};
@@ -6,8 +9,10 @@ use tracing::info;
 
 use crate::{
     siffleux_config::{
-        AuthenticationConfig, DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME, EgressConfig, IngressConfig,
-        ServerConfig, TcpEgressConfig, TcpIngressConfig, UdpEgressConfig, UdpIngressConfig,
+        AuthenticationConfig, DEFAULT_SERVER_TLS_CERTIFICATE_FILE,
+        DEFAULT_SERVER_TLS_PRIVATE_KEY_FILE, DEFAULT_SERVER_TLS_SUBJECT_ALT_NAME, EgressConfig,
+        IngressConfig, ServerConfig, TcpEgressConfig, TcpIngressConfig, TlsConfig, UdpEgressConfig,
+        UdpIngressConfig,
     },
     utils::generate_secure_random_key,
 };
@@ -69,9 +74,23 @@ pub struct ServerArgs {
     #[arg(long, default_value_t = 8765)]
     pub port: u16,
 
+    #[command(flatten)]
+    pub tls: TlsArgs,
+}
+
+#[derive(Args)]
+pub struct TlsArgs {
+    /// Path to the PEM certificate
+    #[arg(long, default_value = DEFAULT_SERVER_TLS_CERTIFICATE_FILE)]
+    pub cert_pem_path: String,
+
+    /// Path to the PEM private key
+    #[arg(long, default_value = DEFAULT_SERVER_TLS_PRIVATE_KEY_FILE)]
+    pub key_pem_path: String,
+
     /// Certificate subject alt name
-    #[arg(long, default_value = DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME)]
-    pub certificate_subject_alt_name: String,
+    #[arg(long, default_value = DEFAULT_SERVER_TLS_SUBJECT_ALT_NAME)]
+    pub cert_subject_alt_name: String,
 }
 
 impl Into<ServerConfig> for ServerArgs {
@@ -83,7 +102,11 @@ impl Into<ServerConfig> for ServerArgs {
         ServerConfig {
             id,
             client_addr: SocketAddr::new(self.ip, self.port),
-            cert_subject_alt_name: self.certificate_subject_alt_name,
+            tls: TlsConfig {
+                cert_pem_path: PathBuf::from(self.tls.cert_pem_path),
+                key_pem_path: PathBuf::from(self.tls.key_pem_path),
+                cert_subject_alt_name: self.tls.cert_subject_alt_name,
+            },
         }
     }
 }
@@ -198,19 +221,19 @@ pub struct AuthenticationArgs {
 
     /// Hash of the server certificate to validate
     #[arg(long)]
-    pub certificate_hash: String,
+    pub cert_hash: String,
 
     /// Certificate subject alt name
-    #[arg(long, default_value = DEFAULT_SERVER_CERT_SUBJECT_ALT_NAME)]
-    pub certificate_subject_alt_name: String,
+    #[arg(long, default_value = DEFAULT_SERVER_TLS_SUBJECT_ALT_NAME)]
+    pub cert_subject_alt_name: String,
 }
 
 impl Into<AuthenticationConfig> for AuthenticationArgs {
     fn into(self) -> AuthenticationConfig {
         AuthenticationConfig {
             server: self.server,
-            certificate_hash: self.certificate_hash,
-            certificate_subject_alt_name: self.certificate_subject_alt_name,
+            cert_hash: self.cert_hash,
+            cert_subject_alt_name: self.cert_subject_alt_name,
         }
     }
 }

@@ -88,7 +88,7 @@ The server logs output the certificate hash, ingress ID and the auth key. You wi
 ```
 Generated auth key: $AUTH_KEY
 Loaded self signed certificate
-Certificate hash: $CERTIFICATE_HASH
+Certificate hash: $CERT_HASH
 Starting listening for tunnels...
 Ready to accept tunnels.
 Starting TCP ingress... ingress_id=$INGRESS_ID
@@ -102,7 +102,7 @@ Run the Siffleux client to establish a tunnel by passing the values from the ser
 ```bash
 siffleux client tcp \
   --server 127.0.0.1:8765 \
-  --certificate-hash $CERTIFICATE_HASH \
+  --cert-hash $CERT_HASH \
   --ingress-id $INGRESS_ID \
   --auth-key $AUTH_KEY \
   --target 127.0.0.1:80
@@ -181,6 +181,11 @@ id = "my-server-id"
 ip = "0.0.0.0"
 port = 8765
 
+[tls]
+cert_pem_path = "server-cert.pem"
+key_pem_path = "server-key.pem"
+subject_alt_name = "my-server.com"
+
 [[tcp_ingress]]
 ip = "0.0.0.0"
 port = 8080
@@ -206,8 +211,19 @@ At the root of the file, you configure the server.
 | ------------------------------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`                           | string  | No       | Identifier for the server. If omitted, a random ID is generated.                                                                                               |
 | `ip`                           | string  | No       | IP address the server listens on for client connections. Defaults to `0.0.0.0`.                                                                                |
-| `port`                         | integer | No       | Port the server listens on for client connections. Defaults to `8765`.                                                                                         |
-| `certificate_subject_alt_name` | string  | No       | Subject Alternative Name used for the server's TLS certificate. Defaults to `self-host.siffleux.dev`. Only required to change if you use your own certificate. |
+| `port`                         | integer | No       | Port the server listens on for client connections. Defaults to `8765`. |
+
+#### `[tls]`
+
+Defines the TLS configuration used by the server.
+
+**Note:** If the certificate doesn't exist on first launch. The server will generate one and save it at the specified paths.
+
+| Field                          | Type    | Required | Description                                                                                                                                                    |
+| ------------------------------ | ------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `cert_pem_path` | string  | No       | Path of the PEM certificate used for TLS. Defaults to `siffleux-cert.pem`. |
+| `key_pem_path` | string  | No       | Path of the private key used for TLS. Defaults to `siffleux-key.pem`. |
+| `cert_subject_alt_name` | string  | No       | Subject Alternative Name of the certificate used the TLS. Defaults to `self-host.siffleux.dev`. |
 
 #### `[[tcp_ingress]]`
 
@@ -236,8 +252,8 @@ Each entry defines a UDP listener that accepts incoming datagrams and tunnels th
 ```toml
 [server]
 address = "example.com:8765"
-certificate_hash = "sha256-hash-of-server-certificate"
-certificate_subject_alt_name = "self-host.siffleux.dev"
+cert_hash = "sha256-hash-of-server-certificate"
+cert_subject_alt_name = "self-host.siffleux.dev"
 
 [[tcp_egress]]
 id = "egress-1"
@@ -265,8 +281,8 @@ Defines the default server to connect to for all egresses. Can be overridden per
 | Field                          | Type   | Required | Description                                                                                                                                                   |
 | ------------------------------ | ------ | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `address`                      | string | Yes      | Address (`hostname:port` or `ip:port`) of the server to connect to.                                                                                           |
-| `certificate_hash`             | string | Yes      | Expected hash of the server's TLS certificate, used for validation.                                                                                           |
-| `certificate_subject_alt_name` | string | No       | Expected Subject Alternative Name on the server's certificate. Defaults to `self-host.siffleux.dev`. Only required to change if you use your own certificate. |
+| `cert_hash`             | string | Yes      | Expected hash of the server's TLS certificate, used for validation.                                                                                           |
+| `cert_subject_alt_name` | string | No       | Expected Subject Alternative Name on the server's certificate. Defaults to `self-host.siffleux.dev`. Only required to change if you use your own certificate. |
 
 #### `[[tcp_egress]]`
 
@@ -317,7 +333,9 @@ siffleux server [SERVER_OPTIONS] [INGRESS]
 | `--id`                           | string  | No       | Identifier for the server. If omitted, a random ID is generated.                                      |
 | `--ip`                           | string  | No       | IP address the server listens on for client connections. Defaults to `0.0.0.0`.                       |
 | `--port`                         | integer | No       | Port the server listens on for client connections. Defaults to `8765`.                                |
-| `--certificate-subject-alt-name` | string  | No       | Subject Alternative Name used for the server's TLS certificate. Defaults to `self-host.siffleux.dev`. |
+| `--cert-pem-path` | string  | No       | Path of the PEM certificate used for TLS. Defaults to `siffleux-cert.pem`. |
+| `--key-pem-path` | string  | No       | Path of the private key used for TLS. Defaults to `siffleux-key.pem`. |
+| `--cert-subject-alt-name` | string  | No       | Subject Alternative Name of the certificate used for TLS. Defaults to `self-host.siffleux.dev`. |
 
 #### TCP Ingress
 
@@ -362,7 +380,7 @@ siffleux client [CLIENT_OPTIONS] [EGRESS]
 ```bash
 siffleux client tcp \
     --server <SERVER> \
-    --certificate-hash <CERTIFICATE_HASH> \
+    --cert-hash <CERT_HASH> \
     --ingress-id <INGRESS_ID> \
     --auth-key <AUTH_KEY> \
     --target <TARGET>
@@ -371,19 +389,19 @@ siffleux client tcp \
 | Option                           | Type   | Required | Description                                                                                          |
 | -------------------------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------- |
 | `--server`                       | string | Yes      | Address (`hostname:port` or `ip:port`) of the server to connect to.                                  |
-| `--certificate-hash`             | string | Yes      | Expected hash of the server's TLS certificate, used for validation.                                  |
+| `--cert-hash`             | string | Yes      | Expected hash of the server's TLS certificate, used for validation.                                  |
 | `--ingress-id`                   | string | Yes      | ID of the server-side TCP ingress this egress attaches to.                                           |
 | `--auth-key`                     | string | Yes      | Authentication key used to authenticate with the target ingress.                                     |
 | `--target`                       | string | Yes      | Address (`hostname:port` or `ip:port`) of the target service to forward the TCP connections to.      |
 | `--id`                           | string | No       | Identifier for this egress. If omitted, a random ID is generated.                                    |
-| `--certificate-subject-alt-name` | string | No       | Expected Subject Alternative Name on the server's certificate. Defaults to `self-host.siffleux.dev`. |
+| `--cert-subject-alt-name` | string | No       | Expected Subject Alternative Name on the server's certificate. Defaults to `self-host.siffleux.dev`. |
 
 #### `udp`
 
 ```bash
 siffleux client udp \
     --server <SERVER> \
-    --certificate-hash <CERTIFICATE_HASH> \
+    --cert-hash <CERT_HASH> \
     --ingress-id <INGRESS_ID> \
     --auth-key <AUTH_KEY> \
     --target <TARGET>
@@ -392,9 +410,9 @@ siffleux client udp \
 | Option                           | Type   | Required | Description                                                                                          |
 | -------------------------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------- |
 | `--server`                       | string | Yes      | Address (`hostname:port` or `ip:port`) of the server to connect to.                                  |
-| `--certificate-hash`             | string | Yes      | Expected hash of the server's TLS certificate, used for validation.                                  |
+| `--cert-hash`             | string | Yes      | Expected hash of the server's TLS certificate, used for validation.                                  |
 | `--ingress-id`                   | string | Yes      | ID of the server-side UDP ingress this egress attaches to.                                           |
 | `--auth-key`                     | string | Yes      | Authentication key used to authenticate with the target ingress.                                     |
 | `--target`                       | string | Yes      | Address (`hostname:port` or `ip:port`) of the target service to forward the UDP datagrams to.        |
 | `--id`                           | string | No       | Identifier for this egress. If omitted, a random ID is generated.                                    |
-| `--certificate-subject-alt-name` | string | No       | Expected Subject Alternative Name on the server's certificate. Defaults to `self-host.siffleux.dev`. |
+| `--cert-subject-alt-name` | string | No       | Expected Subject Alternative Name on the server's certificate. Defaults to `self-host.siffleux.dev`. |
