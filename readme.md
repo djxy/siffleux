@@ -1,14 +1,9 @@
-<div align="center">
-    <img src="./assets/logo.png" alt="Siffleux logo" width="200">
-
 # Siffleux
 
 [![License: MIT](https://img.shields.io/github/license/djxy/siffleux)](https://opensource.org/licenses/MIT)
 [![Docker Image](https://img.shields.io/badge/docker-ghcr.io-blue.svg)](https://github.com/djxy/siffleux/pkgs/container/siffleux)
 
 > **Siffleux** (pronounced _sif-lø_) is the French-Canadian name for a groundhog.
-
-</div>
 
 Siffleux is a lightweight and self-hosted tunnel that exposes services hosted behind a NAT to the internet without opening ingress ports.
 
