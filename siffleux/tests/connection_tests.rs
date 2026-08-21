@@ -3,16 +3,17 @@ mod mock_ingress;
 use async_trait::async_trait;
 use rustls::crypto::aws_lc_rs;
 use rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
-use siffleux::IngressClone;
 use siffleux::authentication::{Authentication, V1CertifcateHash};
 use siffleux::{
     AuthKey, Client, Egress, EgressId, Error, IngressId, Server, ServerId,
     generate_self_signed_certificate,
 };
+use siffleux::{IngressClone, State};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, OnceLock};
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::watch;
 use tokio::time::sleep;
 use tracing::Level;
 
@@ -34,12 +35,21 @@ struct MockEgress {
 struct MockEgressInner {
     id: EgressId,
     ingress_id: IngressId,
+    _state_sender: watch::Sender<State>,
+    state_receiver: watch::Receiver<State>,
 }
 
 impl MockEgress {
     fn new(id: EgressId, ingress_id: IngressId) -> Self {
+        let (_state_sender, state_receiver) = watch::channel(State::Stopped);
+
         Self {
-            inner: Arc::new(MockEgressInner { id, ingress_id }),
+            inner: Arc::new(MockEgressInner {
+                id,
+                ingress_id,
+                _state_sender,
+                state_receiver,
+            }),
         }
     }
 }
@@ -52,6 +62,10 @@ impl Egress for MockEgress {
 
     fn ingress_id(&self) -> &IngressId {
         &self.inner.ingress_id
+    }
+
+    fn state(&self) -> watch::Receiver<State> {
+        self.inner.state_receiver.clone()
     }
 
     async fn start(&self) -> Result<(), Error> {

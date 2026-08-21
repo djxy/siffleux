@@ -58,7 +58,7 @@ pub fn to_datagram(socket_addr: SocketAddr, data: &[u8], data_size: usize) -> By
     bytes.freeze()
 }
 
-pub fn extract_socket_addr_from_datagram(bytes: &mut Bytes) -> Option<SocketAddr> {
+pub fn extract_origin_socket_addr_from_datagram(bytes: &mut Bytes) -> Option<SocketAddr> {
     match bytes.get_u8() {
         UDP_IPV4_ORIGIN => {
             let mut octets = [0u8; 4];

@@ -1,6 +1,13 @@
-use tokio_util::sync::CancellationToken;
+use tokio::sync::watch;
 
 use crate::{Error, IngressId, client::egress::EgressId};
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum State {
+    Stopped,
+    Starting,
+    Ready,
+}
 
 #[async_trait::async_trait]
 pub trait Egress: EgressClone + Send + Sync {
@@ -8,16 +15,11 @@ pub trait Egress: EgressClone + Send + Sync {
 
     fn ingress_id(&self) -> &IngressId;
 
+    fn state(&self) -> watch::Receiver<State>;
+
     async fn start(&self) -> Result<(), Error>;
 
     async fn stop(&self) -> Result<(), Error>;
-
-    /// Returns true if is running or false if stopped.
-    fn is_running(&self) -> bool;
-
-    /// If the egress is stopped, it will return None. If the egress is running, it will return the CancellationToken
-    /// related to the current execution. If the token is cancelled, it means the egress is stopped.
-    fn stopped(&self) -> Option<CancellationToken>;
 }
 
 pub trait EgressClone {

@@ -10,7 +10,7 @@ use rustls::{
     pki_types::{CertificateDer, PrivatePkcs8KeyDer},
 };
 use siffleux::{
-    AuthKey, Client, Egress, EgressId, Ingress, IngressClone, IngressId, Server, ServerId,
+    AuthKey, Client, Egress, EgressId, Ingress, IngressClone, IngressId, Server, ServerId, State,
     UdpEgress, UdpIngress, authentication::V1CertifcateHash, generate_self_signed_certificate,
 };
 use tokio::net::UdpSocket;
@@ -110,6 +110,12 @@ async fn test_send_and_receive_data() {
 
     udp_egress.start().await.unwrap();
 
+    udp_egress
+        .state()
+        .wait_for(|state| *state == State::Ready)
+        .await
+        .unwrap();
+
     let udp_socket = UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
         .await
         .unwrap();
@@ -180,6 +186,12 @@ async fn test_tunnel_reconnection() {
     );
 
     udp_egress.start().await.unwrap();
+
+    udp_egress
+        .state()
+        .wait_for(|state| *state == State::Ready)
+        .await
+        .unwrap();
 
     let mut previous_tunnel_id = Uuid::nil();
 

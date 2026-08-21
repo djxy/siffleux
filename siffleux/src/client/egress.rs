@@ -4,6 +4,7 @@ mod tcp_egress;
 mod udp_egress;
 
 pub use egress::Egress;
+pub use egress::State;
 pub use egress_id::EgressId;
 pub use tcp_egress::TcpEgress;
 pub use udp_egress::UdpEgress;

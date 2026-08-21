@@ -4,15 +4,29 @@ use std::{
     time::Duration,
 };
 
-use tokio::{io::AsyncWriteExt, net::TcpSocket, sync::RwLock, task::JoinHandle, time::sleep};
+use parking_lot::RwLock;
+use tokio::{
+    io::AsyncWriteExt,
+    net::TcpSocket,
+    sync::{Mutex, watch},
+    task::JoinHandle,
+    time::sleep,
+};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info, warn};
+use tracing::{debug, error, info};
 
 use crate::{
-    Egress, Error, IngressId, Tunnel, TunnelReadStream, TunnelStream, TunnelWriteStream,
-    authentication::Authentication, client::egress::EgressId,
+    Egress, Error, IngressId, TunnelReadStream, TunnelStream, TunnelWriteStream,
+    authentication::Authentication,
+    client::egress::{EgressId, egress::State},
     protocols::v1::handle_protocol_v1_tcp_stream,
 };
+
+struct TcpEgressProcess {
+    /// Token used to stop all the tasks related to the process.
+    token: CancellationToken,
+    tunnel_task: JoinHandle<()>,
+}
 
 #[derive(Clone)]
 pub struct TcpEgress {
@@ -24,7 +38,10 @@ struct TcpEgressInner {
     ingress_id: IngressId,
     authentication: Box<dyn Authentication>,
     target_addr: SocketAddr,
-    process: RwLock<Option<(CancellationToken, JoinHandle<()>)>>,
+    process: RwLock<Option<TcpEgressProcess>>,
+    process_lock: Mutex<()>,
+    state_sender: watch::Sender<State>,
+    state_receiver: watch::Receiver<State>,
 }
 
 #[async_trait::async_trait]
@@ -37,94 +54,28 @@ impl Egress for TcpEgress {
         &self.inner.ingress_id
     }
 
-    async fn start(&self) -> Result<(), Error> {
-        let mut start_process = self.inner.process.write().await;
+    fn state(&self) -> watch::Receiver<State> {
+        self.inner.state_receiver.clone()
+    }
 
-        if start_process.is_some() {
+    async fn start(&self) -> Result<(), Error> {
+        let _lock = self.inner.process_lock.lock().await;
+
+        if self.inner.process.read().is_some() {
             return Err(Error::EgressAlreadyStarted);
         }
 
         info!(egress_id = %self.id(), "Starting");
 
-        let mut tunnel = self.inner.authentication.connect(self).await?;
+        let _ = self.inner.state_sender.send(State::Starting);
 
-        info!(egress_id = %self.id(), tunnel_id = %tunnel.id(), "Tunnel connected");
+        let mut process = self.inner.process.write();
+        let token = CancellationToken::new();
 
-        let cancellation_token = CancellationToken::new();
-        let cancellation_token_clone = cancellation_token.clone();
-        let self_clone = self.clone();
-
-        let handle = tokio::spawn(async move {
-            loop {
-                loop {
-                    tokio::select! {
-                        accept_stream_result = tunnel.accept_stream() => {
-                            match accept_stream_result {
-                                Ok((tunnel_read_stream, tunnel_write_stream, tunnel_stream)) => {
-                                    debug!(
-                                        ingress_id = %self_clone.ingress_id(),
-                                        egress_id = %self_clone.id(),
-                                        tunnel_id = %tunnel.id(),
-                                        "Received stream.",
-                                    );
-
-                                    self_clone.handle_stream(
-                                        tunnel_stream,
-                                        tunnel_read_stream,
-                                        tunnel_write_stream,
-                                        cancellation_token_clone.clone()
-                                    );
-                                }
-                                Err(e) => {
-                                    if !matches!(e, Error::ClosedTunnel) {
-                                        error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
-                                    }
-                                }
-                            }
-                        }
-                        _ = tunnel.closed() => {
-                            warn!(egress_id = %self_clone.id(), "Tunnel with server closed.");
-                            break;
-                        }
-                        _ = cancellation_token_clone.cancelled() => {
-                            self_clone.stop_process(tunnel).await;
-                            return;
-                        }
-                    }
-                }
-
-                let mut retry: u32 = 0;
-
-                loop {
-                    info!(egress_id = %self_clone.id(), "Reconnecting to server...");
-                    match self_clone.inner.authentication.connect(&self_clone).await {
-                        Ok(new_tunnel) => {
-                            info!(egress_id = %self_clone.id(), "Reconnected to server.");
-                            tunnel = new_tunnel;
-                            break;
-                        }
-                        Err(_) => {
-                            let duration =
-                                Duration::from_millis((100 * 2_u64.pow(retry)).min(30_000_u64));
-
-                            info!(egress_id = %self_clone.id(), "Failed to reconnect. Retry reconnecting in {:?}.", duration);
-
-                            tokio::select! {
-                                _ = sleep(duration) => {
-                                    retry += 1;
-                                }
-                                _ = cancellation_token_clone.cancelled() => {
-                                    self_clone.stop_process(tunnel).await;
-                                    return;
-                                }
-                            }
-                        }
-                    }
-                }
-            }
+        *process = Some(TcpEgressProcess {
+            tunnel_task: self.start_tunnel(token.clone()),
+            token,
         });
-
-        *start_process = Some((cancellation_token, handle));
 
         info!(egress_id = %self.id(), "Started");
 
@@ -132,11 +83,14 @@ impl Egress for TcpEgress {
     }
 
     async fn stop(&self) -> Result<(), Error> {
-        match self.inner.process.write().await.take() {
-            Some((cancellation_token, handle)) => {
+        let process = self.inner.process.write().take();
+
+        match process {
+            Some(process) => {
                 info!(egress_id = %self.id(), "Stopping");
-                cancellation_token.cancel();
-                handle.await?;
+                process.token.cancel();
+                process.tunnel_task.await?;
+                let _ = self.inner.state_sender.send(State::Stopped);
                 info!(egress_id = %self.id(), "Stopped");
 
                 Ok(())
@@ -153,6 +107,8 @@ impl TcpEgress {
         ingress_id: IngressId,
         target_addr: SocketAddr,
     ) -> Self {
+        let (state_sender, state_receiver) = watch::channel(State::Stopped);
+
         Self {
             inner: Arc::new(TcpEgressInner {
                 id,
@@ -160,12 +116,83 @@ impl TcpEgress {
                 authentication,
                 target_addr,
                 process: RwLock::new(None),
+                process_lock: Mutex::new(()),
+                state_sender,
+                state_receiver,
             }),
         }
     }
 
-    async fn stop_process(&self, tunnel: Tunnel) {
-        tunnel.close().await;
+    fn start_tunnel(&self, process_token: CancellationToken) -> JoinHandle<()> {
+        let self_clone = self.clone();
+
+        tokio::spawn(async move {
+            let mut retry: u32 = 0;
+
+            loop {
+                info!(egress_id = %self_clone.id(), "Connecting to server...");
+
+                match self_clone.inner.authentication.connect(&self_clone).await {
+                    Ok(tunnel) => {
+                        retry = 0;
+                        info!(egress_id = %self_clone.id(), "Tunnel established.");
+
+                        info!(egress_id = %self_clone.id(), "Started");
+                        let _ = self_clone.inner.state_sender.send(State::Ready);
+
+                        tokio::select! {
+                            accept_stream_result = tunnel.accept_stream() => {
+                                match accept_stream_result {
+                                    Ok((tunnel_read_stream, tunnel_write_stream, tunnel_stream)) => {
+                                        debug!(
+                                            ingress_id = %self_clone.ingress_id(),
+                                            egress_id = %self_clone.id(),
+                                            tunnel_id = %tunnel.id(),
+                                            "Received stream.",
+                                        );
+
+                                        self_clone.handle_stream(
+                                            tunnel_stream,
+                                            tunnel_read_stream,
+                                            tunnel_write_stream,
+                                            process_token.clone()
+                                        );
+                                    }
+                                    Err(e) => {
+                                        if !matches!(e, Error::ClosedTunnel) {
+                                            error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
+                                        }
+                                    }
+                                }
+                            }
+                            _ = tunnel.closed() => {}
+                            _ = process_token.cancelled() => {}
+                        }
+
+                        if process_token.is_cancelled() {
+                            tunnel.close().await;
+                            return;
+                        }
+                    }
+                    Err(_) => {
+                        let duration =
+                            Duration::from_millis((100 * 2_u64.pow(retry)).min(30_000_u64));
+
+                        info!(egress_id = %self_clone.id(), "Failed to connect. Reconnecting in {:?}.", duration);
+
+                        tokio::select! {
+                            _ = sleep(duration) => {
+                                retry += 1;
+                            }
+                            _ = process_token.cancelled() => {
+                                debug!(egress_id = %self_clone.id(), "Cancelling reconnection to the server.");
+                                return;
+                            }
+                        }
+                    }
+                }
+            }
+        })
     }
 
     fn handle_stream(

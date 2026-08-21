@@ -9,7 +9,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::common::AuthKey;
-use crate::frames::v1::{extract_socket_addr_from_datagram, to_datagram};
+use crate::frames::v1::{extract_origin_socket_addr_from_datagram, to_datagram};
 use crate::{Error, Tunnel};
 use crate::{Ingress, IngressId};
 
@@ -63,7 +63,7 @@ impl Ingress for UdpIngress {
                     bytes_result = tunnel_clone.read_datagram() => {
                         match bytes_result {
                             Ok(mut bytes) => {
-                                if let Some(origin_socket_addr) = extract_socket_addr_from_datagram(&mut bytes) {
+                                if let Some(origin_socket_addr) = extract_origin_socket_addr_from_datagram(&mut bytes) {
                                     let _ = udp_socket.send_to(&bytes[..], origin_socket_addr).await;
                                 };
                             }

@@ -11,7 +11,10 @@ use rustls::{
 };
 use siffleux::{
     AuthKey, Client, Egress, EgressId, Ingress, IngressClone, IngressId, Server, ServerId,
-    TcpEgress, TcpIngress, authentication::V1CertifcateHash, generate_self_signed_certificate,
+    State::{self},
+    TcpEgress, TcpIngress,
+    authentication::V1CertifcateHash,
+    generate_self_signed_certificate,
 };
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -123,6 +126,12 @@ async fn test_send_and_receive_data() {
 
     tcp_egress.start().await.unwrap();
 
+    tcp_egress
+        .state()
+        .wait_for(|state| *state == State::Ready)
+        .await
+        .unwrap();
+
     let mut stream = TcpStream::connect(tcp_ingress.socket_addr().unwrap())
         .await
         .unwrap();
@@ -205,6 +214,12 @@ async fn test_target_tcp_write_dropped() {
 
     tcp_egress.start().await.unwrap();
 
+    tcp_egress
+        .state()
+        .wait_for(|state| *state == State::Ready)
+        .await
+        .unwrap();
+
     let mut stream = TcpStream::connect(tcp_ingress.socket_addr().unwrap())
         .await
         .unwrap();
@@ -279,6 +294,12 @@ async fn test_origin_tcp_write_dropped() {
     );
 
     tcp_egress.start().await.unwrap();
+
+    tcp_egress
+        .state()
+        .wait_for(|state| *state == State::Ready)
+        .await
+        .unwrap();
 
     let tcp_stream = TcpStream::connect(tcp_ingress.socket_addr().unwrap())
         .await
