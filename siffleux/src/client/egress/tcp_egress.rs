@@ -13,7 +13,7 @@ use tokio::{
     time::sleep,
 };
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::{
     Egress, Error, IngressId, TunnelReadStream, TunnelStream, TunnelWriteStream,
@@ -140,38 +140,41 @@ impl TcpEgress {
                         info!(egress_id = %self_clone.id(), "Started");
                         let _ = self_clone.inner.state_sender.send(State::Ready);
 
-                        tokio::select! {
-                            accept_stream_result = tunnel.accept_stream() => {
-                                match accept_stream_result {
-                                    Ok((tunnel_read_stream, tunnel_write_stream, tunnel_stream)) => {
-                                        debug!(
-                                            ingress_id = %self_clone.ingress_id(),
-                                            egress_id = %self_clone.id(),
-                                            tunnel_id = %tunnel.id(),
-                                            "Received stream.",
-                                        );
+                        loop {
+                            tokio::select! {
+                                accept_stream_result = tunnel.accept_stream() => {
+                                    match accept_stream_result {
+                                        Ok((tunnel_read_stream, tunnel_write_stream, tunnel_stream)) => {
+                                            debug!(
+                                                ingress_id = %self_clone.ingress_id(),
+                                                egress_id = %self_clone.id(),
+                                                tunnel_id = %tunnel.id(),
+                                                "Received stream.",
+                                            );
 
-                                        self_clone.handle_stream(
-                                            tunnel_stream,
-                                            tunnel_read_stream,
-                                            tunnel_write_stream,
-                                            process_token.clone()
-                                        );
-                                    }
-                                    Err(e) => {
-                                        if !matches!(e, Error::ClosedTunnel) {
-                                            error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
+                                            self_clone.handle_stream(
+                                                tunnel_stream,
+                                                tunnel_read_stream,
+                                                tunnel_write_stream,
+                                                process_token.clone()
+                                            );
+                                        }
+                                        Err(e) => {
+                                            if !matches!(e, Error::ClosedTunnel) {
+                                                error!(egress_id = %self_clone.id(), "Error while accepting stream: {}", e);
+                                            }
                                         }
                                     }
                                 }
+                                _ = tunnel.closed() => {
+                                    warn!(egress_id = %self_clone.id(), "Tunnel disconnected.");
+                                    break;
+                                }
+                                _ = process_token.cancelled() => {
+                                    tunnel.close().await;
+                                    return;
+                                }
                             }
-                            _ = tunnel.closed() => {}
-                            _ = process_token.cancelled() => {}
-                        }
-
-                        if process_token.is_cancelled() {
-                            tunnel.close().await;
-                            return;
                         }
                     }
                     Err(_) => {

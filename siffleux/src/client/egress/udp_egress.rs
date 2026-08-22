@@ -143,16 +143,49 @@ impl UdpEgress {
                         retry = 0;
                         info!(egress_id = %self_clone.id(), "Tunnel established.");
 
-                        self_clone.start_tunnel_to_socket(tunnel.clone(), process_token.clone());
+                        let (
+                            expired_origin_socket_addr_sender,
+                            mut expired_origin_socket_addr_receiver,
+                        ) = mpsc::unbounded_channel::<SocketAddr>();
+                        let mut udp_sockets: HashMap<SocketAddr, mpsc::Sender<Bytes>> =
+                            HashMap::with_capacity(64);
 
-                        tokio::select! {
-                            _ = process_token.cancelled() => {}
-                            _ = tunnel.closed() => {}
-                        }
+                        info!(egress_id = %self_clone.id(), "Started");
+                        let _ = self_clone.inner.state_sender.send(State::Ready);
 
-                        if process_token.is_cancelled() {
-                            tunnel.close().await;
-                            return;
+                        loop {
+                            tokio::select! {
+                                datagram_received_result = tunnel.read_datagram() => {
+                                    match datagram_received_result {
+                                        Ok(bytes) => {
+                                            self_clone.process_datagram(
+                                                bytes,
+                                                &tunnel,
+                                                &mut udp_sockets,
+                                                &expired_origin_socket_addr_sender,
+                                                &process_token
+                                            );
+                                        }
+                                        Err(e) => {
+                                            if !matches!(e, Error::ClosedTunnel) {
+                                                error!(egress_id = %self_clone.id(), "Error while receiving a datagram from tunnel: {}", e);
+                                            }
+                                        }
+                                    }
+                                }
+                                socket_addr = expired_origin_socket_addr_receiver.recv() => {
+                                    if let Some(socket_addr) = socket_addr {
+                                        udp_sockets.remove(&socket_addr);
+                                    }
+                                }
+                                _ = tunnel.closed() => {
+                                    break;
+                                }
+                                _ = process_token.cancelled() => {
+                                    tunnel.close().await;
+                                    return;
+                                }
+                            }
                         }
                     }
                     Err(_) => {
@@ -170,58 +203,6 @@ impl UdpEgress {
                                 return;
                             }
                         }
-                    }
-                }
-            }
-        })
-    }
-
-    fn start_tunnel_to_socket(
-        &self,
-        tunnel: Tunnel,
-        process_token: CancellationToken,
-    ) -> JoinHandle<()> {
-        let self_clone = self.clone();
-
-        tokio::spawn(async move {
-            let (expired_origin_socket_addr_sender, mut expired_origin_socket_addr_receiver) =
-                mpsc::unbounded_channel::<SocketAddr>();
-            let mut udp_sockets: HashMap<SocketAddr, mpsc::Sender<Bytes>> =
-                HashMap::with_capacity(64);
-
-            info!(egress_id = %self_clone.id(), "Started");
-            let _ = self_clone.inner.state_sender.send(State::Ready);
-
-            loop {
-                tokio::select! {
-                    datagram_received_result = tunnel.read_datagram() => {
-                        match datagram_received_result {
-                            Ok(bytes) => {
-                                self_clone.process_datagram(
-                                    bytes,
-                                    &tunnel,
-                                    &mut udp_sockets,
-                                    &expired_origin_socket_addr_sender,
-                                    &process_token
-                                );
-                            }
-                            Err(e) => {
-                                if !matches!(e, Error::ClosedTunnel) {
-                                    error!(egress_id = %self_clone.id(), "Error while receiving a datagram from tunnel: {}", e);
-                                }
-                            }
-                        }
-                    }
-                    socket_addr = expired_origin_socket_addr_receiver.recv() => {
-                        if let Some(socket_addr) = socket_addr {
-                            udp_sockets.remove(&socket_addr);
-                        }
-                    }
-                    _ = tunnel.closed() => {
-                        return;
-                    }
-                    _ = process_token.cancelled() => {
-                        return;
                     }
                 }
             }

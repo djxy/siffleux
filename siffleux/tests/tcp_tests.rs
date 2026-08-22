@@ -154,6 +154,115 @@ async fn test_send_and_receive_data() {
 }
 
 #[tokio::test]
+async fn test_open_multiple_connections() {
+    let (cert_der, key, cert_hash) = init();
+    let server_id = ServerId::try_from("server_id").unwrap();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+    let egress_id = EgressId::try_from("egress").unwrap();
+
+    let server = Server::new_with_certificate(
+        server_id,
+        cert_der.clone(),
+        key.clone_key(),
+        cert_hash.clone(),
+    )
+    .unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .await
+        .unwrap();
+
+    let tcp_ingress = TcpIngress::new(
+        ingress_id.clone(),
+        auth_key.clone(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    );
+
+    tcp_ingress.start().await.unwrap();
+
+    server.assign_ingress(tcp_ingress.clone_box()).unwrap();
+
+    let tcp_echo = TcpListener::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .await
+        .unwrap();
+    let tcp_echo_addr = tcp_echo.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        while let Ok((tcp_stream, _)) = tcp_echo.accept().await {
+            tokio::spawn(async move {
+                let mut buffer = [0u8, 32];
+                let (mut read_stream, mut write_stream) = tcp_stream.into_split();
+
+                while let Ok(size) = read_stream.read(&mut buffer).await {
+                    if size == 0 {
+                        return;
+                    }
+
+                    write_stream.write(&mut buffer[..size]).await.unwrap();
+                }
+            });
+        }
+    });
+
+    let client = Client::new();
+
+    let authentication = V1CertifcateHash::new(
+        client.clone(),
+        auth_key,
+        server.address().unwrap(),
+        SERVER_NAME.to_string(),
+        cert_hash.clone(),
+    );
+
+    let tcp_egress = TcpEgress::new(
+        egress_id,
+        Box::new(authentication),
+        ingress_id,
+        tcp_echo_addr,
+    );
+
+    tcp_egress.start().await.unwrap();
+
+    tcp_egress
+        .state()
+        .wait_for(|state| *state == State::Ready)
+        .await
+        .unwrap();
+
+    let mut streams: Vec<TcpStream> = Vec::new();
+
+    for _ in 0..10 {
+        let mut stream = TcpStream::connect(tcp_ingress.socket_addr().unwrap())
+            .await
+            .unwrap();
+
+        let mut buffer = [0u8; 14];
+
+        stream.write_all(b"Hello, server!").await.unwrap();
+        stream.read_exact(&mut buffer).await.unwrap();
+
+        stream.shutdown().await.unwrap();
+
+        assert_eq!(0, stream.read_to_end(&mut Vec::new()).await.unwrap());
+        assert_eq!(
+            "Hello, server!",
+            &String::from_utf8(buffer[..].to_vec()).unwrap()
+        );
+
+        streams.push(stream);
+    }
+
+    for mut stream in streams.drain(..) {
+        stream.shutdown().await.unwrap();
+    }
+
+    client.stop().await.unwrap();
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_target_tcp_write_dropped() {
     let (cert_der, key, cert_hash) = init();
     let server_id = ServerId::try_from("server_id").unwrap();

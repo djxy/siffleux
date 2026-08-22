@@ -141,6 +141,108 @@ async fn test_send_and_receive_data() {
 }
 
 #[tokio::test]
+async fn test_open_multiple_sockets() {
+    let (cert_der, key, cert_hash) = init();
+    let server_id = ServerId::try_from("server_id").unwrap();
+    let auth_key = AuthKey::try_from("valid_auth_key").unwrap();
+    let ingress_id = IngressId::try_from("ingress").unwrap();
+    let egress_id = EgressId::try_from("egress").unwrap();
+
+    let server = Server::new_with_certificate(
+        server_id,
+        cert_der.clone(),
+        key.clone_key(),
+        cert_hash.clone(),
+    )
+    .unwrap();
+
+    server
+        .listen(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .await
+        .unwrap();
+
+    let udp_ingress = UdpIngress::new(
+        ingress_id.clone(),
+        auth_key.clone(),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+    );
+
+    udp_ingress.start().await.unwrap();
+
+    server.assign_ingress(udp_ingress.clone_box()).unwrap();
+
+    let udp_echo = UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+        .await
+        .unwrap();
+    let udp_echo_addr = udp_echo.local_addr().unwrap();
+
+    tokio::spawn(async move {
+        let mut buffer = [0u8; 32];
+        while let Ok((len, origin)) = udp_echo.recv_from(&mut buffer).await {
+            udp_echo.send_to(&buffer[..len], origin).await.unwrap();
+        }
+    });
+
+    let client = Client::new();
+
+    let authentication = V1CertifcateHash::new(
+        client.clone(),
+        auth_key,
+        server.address().unwrap(),
+        SERVER_NAME.to_string(),
+        cert_hash.clone(),
+    );
+
+    let udp_egress = UdpEgress::new(
+        egress_id,
+        Box::new(authentication),
+        ingress_id,
+        udp_echo_addr,
+    );
+
+    udp_egress.start().await.unwrap();
+
+    udp_egress
+        .state()
+        .wait_for(|state| *state == State::Ready)
+        .await
+        .unwrap();
+
+    let mut sockets: Vec<UdpSocket> = Vec::new();
+
+    for _ in 0..10 {
+        let udp_socket = UdpSocket::bind(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0))
+            .await
+            .unwrap();
+
+        udp_socket
+            .connect(udp_ingress.get_socket_addr().await.unwrap())
+            .await
+            .unwrap();
+
+        let mut buffer = [0u8; 16];
+
+        for i in 0..3u8 {
+            let msg = format!("Hello, server! {}", i);
+            udp_socket.send(msg.as_bytes()).await.unwrap();
+
+            let n = udp_socket.recv(&mut buffer).await.unwrap();
+
+            assert_eq!(msg, String::from_utf8(buffer[..n].to_vec()).unwrap());
+        }
+
+        sockets.push(udp_socket);
+    }
+
+    for socket in sockets.drain(..) {
+        drop(socket)
+    }
+
+    client.stop().await.unwrap();
+    server.stop().await.unwrap();
+}
+
+#[tokio::test]
 async fn test_tunnel_reconnection() {
     let (cert_der, key, cert_hash) = init();
     let server_id = ServerId::try_from("server_id").unwrap();
