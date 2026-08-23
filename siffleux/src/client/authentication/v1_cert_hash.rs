@@ -65,6 +65,9 @@ impl Authentication for V1CertifcateHash {
 
         transport_config.max_concurrent_bidi_streams(1000u32.into());
 
+        transport_config.datagram_receive_buffer_size(value);
+        transport_config.datagram_send_buffer_size(value);
+
         let mut client_config =
             ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls_config)?));
 

@@ -158,13 +158,14 @@ impl UdpEgress {
                                 datagram_received_result = tunnel.read_datagram() => {
                                     match datagram_received_result {
                                         Ok(bytes) => {
+                                            info!("{} bytes received tunnel", bytes.len());
                                             self_clone.process_datagram(
                                                 bytes,
                                                 &tunnel,
                                                 &mut udp_sockets,
                                                 &expired_origin_socket_addr_sender,
                                                 &process_token
-                                            );
+                                            ).await;
                                         }
                                         Err(e) => {
                                             if !matches!(e, Error::ClosedTunnel) {
@@ -209,7 +210,7 @@ impl UdpEgress {
         })
     }
 
-    fn process_datagram(
+    async fn process_datagram(
         &self,
         mut bytes: Bytes,
         tunnel: &Tunnel,
@@ -222,7 +223,13 @@ impl UdpEgress {
         };
 
         if let Some(tunnel_to_socket_sender) = udp_sockets.get(&origin_socket_addr) {
-            let _ = tunnel_to_socket_sender.try_send(bytes);
+            let len = bytes.len();
+
+            if let Err(b) = tunnel_to_socket_sender.try_send(bytes) {
+                if let Err(_) = tunnel_to_socket_sender.send(b.into_inner()).await {
+                    info!("{len} queue bytes dropped");
+                }
+            }
         } else {
             let (tunnel_to_socket_sender, tunnel_to_socket_receiver) =
                 mpsc::channel::<Bytes>(MAX_MESSAGES_RECEIVED);
@@ -278,7 +285,11 @@ impl UdpEgress {
                         }
 
                         for bytes in bytes_received.drain(..) {
-                            let _ = udp_socket.try_send(&bytes);
+                            if let Err(_) = udp_socket.try_send(&bytes){
+                                info!("{} udp socket bytes dropped", bytes.len());
+                            } else {
+                                info!("{} udp socket bytes sent", bytes.len());
+                            }
                         }
                     }
                     _ = sleep(Duration::from_secs(60)) => {
@@ -314,7 +325,11 @@ impl UdpEgress {
                     recv_result = udp_socket.recv(&mut buffer) => {
                         match recv_result {
                             Ok(size) => {
-                                let _ = tunnel.send_datagram(to_datagram(origin_socket_addr, &buffer, size));
+                                if let Err(_) = tunnel.try_send_datagram(to_datagram(origin_socket_addr, &buffer, size)) {
+                                    if let Err(_) = tunnel.send_datagram(to_datagram(origin_socket_addr, &buffer, size)).await {
+                                        info!("{size} received bytes dropped");
+                                    }
+                                }
                             }
                             Err(_) => {}
                         }

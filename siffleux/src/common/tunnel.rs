@@ -72,8 +72,12 @@ impl Tunnel {
         self.close_with_reason(CONNECTION_EOF, b"done").await;
     }
 
-    pub fn send_datagram(&self, bytes: Bytes) -> Result<(), SendDatagramError> {
+    pub fn try_send_datagram(&self, bytes: Bytes) -> Result<(), SendDatagramError> {
         self.inner.connection.send_datagram(bytes)
+    }
+
+    pub async fn send_datagram(&self, bytes: Bytes) -> Result<(), SendDatagramError> {
+        self.inner.connection.send_datagram_wait(bytes).await
     }
 
     pub async fn read_datagram(&self) -> Result<Bytes, Error> {

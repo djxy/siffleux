@@ -217,13 +217,10 @@ impl UdpIngress {
                 result = udp_socket.recv_from(&mut buffer) => {
                     match result {
                         Ok((len, socket_addr)) => {
-                            if let Some(tunnel) = self.get_tunnel_to_connect() {
-                                if let Err(e) = tunnel.send_datagram(to_datagram(socket_addr, &buffer, len))
-                                {
-                                    error!(ingress_id = %self.id(), "Error while sending datagram to tunnel: {e}");
-                                }
+                            if let Err(e) = self.send_datagram_to_tunnel(socket_addr, &buffer, len).await {
+                                error!(ingress_id = %self.id(), "Error while sending datagram to tunnel: {e}");
                             } else {
-                                warn!(ingress_id = %self.id(), "No tunnel available to send datagram.");
+                                info!("{len} bytes sent");
                             }
                         }
                         Err(e) => {
@@ -233,27 +230,40 @@ impl UdpIngress {
                     }
                 }
                 _ = cancellation_token.cancelled() => {
-                    debug!(ingress_id = %self.id(), "Stopped socket => tunnel");
+                    debug!(ingress_id = %self.id(), "Stopped socket => tunnel.");
                     return;
                 }
             }
         }
     }
 
-    fn get_tunnel_to_connect(&self) -> Option<Tunnel> {
-        let tunnels = self.inner.tunnels.read();
+    async fn send_datagram_to_tunnel(
+        &self,
+        socket_addr: SocketAddr,
+        data: &[u8],
+        data_size: usize,
+    ) -> Result<(), Error> {
+        let tunnel = {
+            let tunnels = self.inner.tunnels.read();
 
-        if tunnels.is_empty() {
-            return None;
+            if tunnels.is_empty() {
+                return Err(Error::NoTunnelAvailable);
+            }
+
+            if tunnels.len() == 1 {
+                tunnels[0].clone()
+            } else {
+                tunnels[self.inner.tunnel_rotation.fetch_add(1, Ordering::Relaxed) % tunnels.len()]
+                    .clone()
+            }
+        };
+
+        if let Err(_) = tunnel.try_send_datagram(to_datagram(socket_addr, data, data_size)) {
+            tunnel
+                .send_datagram(to_datagram(socket_addr, data, data_size))
+                .await?
         }
 
-        if tunnels.len() == 1 {
-            return Some(tunnels[0].clone());
-        }
-
-        Some(
-            tunnels[self.inner.tunnel_rotation.fetch_add(1, Ordering::Relaxed) % tunnels.len()]
-                .clone(),
-        )
+        Ok(())
     }
 }

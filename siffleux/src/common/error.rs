@@ -1,7 +1,7 @@
 use quinn::crypto::rustls::NoInitialCipherSuite;
 use quinn::{
     ClosedStream, ConnectError, ConnectionError, ReadError, ReadExactError, ReadToEndError,
-    WriteError,
+    SendDatagramError, WriteError,
 };
 use std::string::FromUtf8Error;
 use std::sync::PoisonError;
@@ -33,6 +33,9 @@ pub enum Error {
 
     #[error("Connection closed")]
     ConnectionClosed,
+
+    #[error("No tunnel available")]
+    NoTunnelAvailable,
 
     #[error("Closed tunnel")]
     ClosedTunnel,
@@ -211,5 +214,11 @@ impl From<uuid::Error> for Error {
 impl From<JoinError> for Error {
     fn from(err: JoinError) -> Self {
         Error::Unknown(err.into())
+    }
+}
+
+impl From<SendDatagramError> for Error {
+    fn from(value: SendDatagramError) -> Self {
+        Error::Unknown(value.into())
     }
 }
