@@ -1,0 +1,13 @@
+[package]
+name = "siffleux-proto"
+version.workspace = true
+edition = "2024"
+
+[dependencies]
+snow = { version = "0.10.0", features = ["ring-accelerated"] }
+socket2 = "0.6.5"
+tokio = { workspace = true }
+
+[[bin]]
+name = "siffleux-proto"
+path = "src/main.rs"
