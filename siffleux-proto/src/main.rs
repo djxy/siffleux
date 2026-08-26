@@ -1,6 +1,6 @@
 use std::{
     env,
-    net::{IpAddr, Ipv4Addr, SocketAddr},
+    net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     num::ParseIntError,
     sync::{Arc, RwLock},
 };
@@ -8,7 +8,7 @@ use std::{
 use snow::{Builder, StatelessTransportState};
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
-    net::{UdpSocket, lookup_host},
+    net::lookup_host,
     signal::unix::{SignalKind, signal},
 };
 
@@ -105,8 +105,7 @@ async fn start_server(private_key: &str) {
 
     let mut client_payload = [0u8; 1500];
     let mut client_message = [0u8; 1500];
-    let (client_message_len, client_origin) =
-        client_socket.recv_from(&mut client_message).await.unwrap();
+    let (client_message_len, client_origin) = client_socket.recv_from(&mut client_message).unwrap();
 
     responder
         .read_message(&client_message[..client_message_len], &mut client_payload)
@@ -118,7 +117,6 @@ async fn start_server(private_key: &str) {
 
     client_socket
         .send_to(&client_message[..client_message_len], client_origin)
-        .await
         .unwrap();
 
     let transport = Arc::from(responder.into_stateless_transport_mode().unwrap());
@@ -137,12 +135,12 @@ async fn start_server(private_key: &str) {
     let origin_lock: Arc<RwLock<Option<SocketAddr>>> = Arc::new(RwLock::new(None));
     let origin_lock_clone = origin_lock.clone();
 
-    let ingress_handle = tokio::spawn(async move {
+    let ingress_handle = tokio::task::spawn_blocking(move || {
         let mut ingress_payload = [0u8; 1500];
         let mut client_message = [0u8; 1500];
 
         while let Ok((ingress_payload_len, origin)) =
-            ingress_socket_clone.recv_from(&mut ingress_payload).await
+            ingress_socket_clone.recv_from(&mut ingress_payload)
         {
             let client_message_len = transport_write_state
                 .encrypt_payload(&ingress_payload[..ingress_payload_len], &mut client_message)
@@ -150,7 +148,6 @@ async fn start_server(private_key: &str) {
 
             client_socket_clone
                 .send_to(&client_message[..client_message_len], client_origin)
-                .await
                 .unwrap();
 
             if origin_lock_clone.read().unwrap().is_none() {
@@ -161,12 +158,15 @@ async fn start_server(private_key: &str) {
         }
     });
 
-    let client_handle = tokio::spawn(async move {
+    let ingress_socket_clone = ingress_socket.clone();
+    let client_socket_clone = client_socket.clone();
+
+    let client_handle = tokio::task::spawn_blocking(move || {
         let mut ingress_payload = [0u8; 1500];
         let mut client_message = [0u8; 1500];
         let mut origin: Option<SocketAddr> = None;
 
-        while let Ok(client_message_len) = client_socket.recv(&mut client_message).await {
+        while let Ok(client_message_len) = client_socket_clone.recv(&mut client_message) {
             let ingress_payload_len = transport_read_state
                 .decrypt_message(&client_message[..client_message_len], &mut ingress_payload)
                 .unwrap();
@@ -177,9 +177,8 @@ async fn start_server(private_key: &str) {
                 origin = Some(origin_ref.clone());
             }
 
-            ingress_socket
+            ingress_socket_clone
                 .send_to(&ingress_payload[..ingress_payload_len], origin.unwrap())
-                .await
                 .unwrap();
         }
     });
@@ -198,11 +197,15 @@ async fn start_server(private_key: &str) {
         _ = sigterm => {},
     }
 
-    client_handle.abort();
-    ingress_handle.abort();
+    shutdown_udp_socket(&ingress_socket);
+    shutdown_udp_socket(&client_socket);
+
+    println!("1");
 
     let _ = ingress_handle.await;
+    println!("2");
     let _ = client_handle.await;
+    println!("3");
 }
 
 async fn start_client(server: SocketAddr, target: SocketAddr, server_public_key: &str) {
@@ -219,8 +222,7 @@ async fn start_client(server: SocketAddr, target: SocketAddr, server_public_key:
     let server_socket = create_udp_socket(0);
     let target_socket = create_udp_socket(0);
 
-    server_socket.connect(server).await.unwrap();
-    server_socket.writable().await.unwrap();
+    server_socket.connect(server).unwrap();
 
     let mut server_payload = [0u8; 1500];
     let mut server_message = [0u8; 1500];
@@ -230,10 +232,9 @@ async fn start_client(server: SocketAddr, target: SocketAddr, server_public_key:
 
     server_socket
         .send(&server_message[..server_message_len])
-        .await
         .unwrap();
 
-    server_message_len = server_socket.recv(&mut server_message).await.unwrap();
+    server_message_len = server_socket.recv(&mut server_message).unwrap();
 
     initiator
         .read_message(&server_message[..server_message_len], &mut server_payload)
@@ -252,34 +253,35 @@ async fn start_client(server: SocketAddr, target: SocketAddr, server_public_key:
     let server_socket_clone = server_socket.clone();
     let target_socket_clone = target_socket.clone();
 
-    let server_handle = tokio::spawn(async move {
+    let server_handle = tokio::task::spawn_blocking(move || {
         let mut target_payload = [0u8; 1500];
         let mut server_message = [0u8; 1500];
 
-        while let Ok(server_message_len) = server_socket_clone.recv(&mut server_message).await {
+        while let Ok(server_message_len) = server_socket_clone.recv(&mut server_message) {
             let target_payload_len = transport_read_state
                 .decrypt_message(&server_message[..server_message_len], &mut target_payload)
                 .unwrap();
 
             target_socket_clone
                 .send_to(&target_payload[..target_payload_len], target)
-                .await
                 .unwrap();
         }
     });
 
-    let target_handle = tokio::spawn(async move {
+    let server_socket_clone = server_socket.clone();
+    let target_socket_clone = target_socket.clone();
+
+    let target_handle = tokio::task::spawn_blocking(move || {
         let mut target_payload = [0u8; 1500];
         let mut server_message = [0u8; 1500];
 
-        while let Ok(target_payload_len) = target_socket.recv(&mut target_payload).await {
+        while let Ok(target_payload_len) = target_socket_clone.recv(&mut target_payload) {
             let server_message_len = transport_write_state
                 .encrypt_payload(&target_payload[..target_payload_len], &mut server_message)
                 .unwrap();
 
-            server_socket
+            server_socket_clone
                 .send(&server_message[..server_message_len])
-                .await
                 .unwrap();
         }
     });
@@ -298,11 +300,21 @@ async fn start_client(server: SocketAddr, target: SocketAddr, server_public_key:
         _ = sigterm => {},
     }
 
-    server_handle.abort();
-    target_handle.abort();
+    shutdown_udp_socket(&server_socket);
+    shutdown_udp_socket(&target_socket);
+
+    println!("1");
 
     let _ = server_handle.await;
+    println!("2");
     let _ = target_handle.await;
+    println!("3");
+}
+
+fn shutdown_udp_socket(udp_socket: &UdpSocket) {
+    let socket2_ref: &Socket = unsafe { &*(udp_socket as *const UdpSocket as *const Socket) };
+
+    let _ = socket2_ref.shutdown(std::net::Shutdown::Both);
 }
 
 fn create_udp_socket(port: u16) -> Arc<UdpSocket> {
@@ -311,7 +323,6 @@ fn create_udp_socket(port: u16) -> Arc<UdpSocket> {
     #[cfg(unix)]
     socket.set_reuse_port(true).unwrap();
     socket.set_reuse_address(true).unwrap();
-    socket.set_nonblocking(true).unwrap();
 
     let buffer_size = 4 * 1024 * 1024; // 4mb
 
@@ -322,5 +333,5 @@ fn create_udp_socket(port: u16) -> Arc<UdpSocket> {
         .bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port).into())
         .unwrap();
 
-    Arc::new(UdpSocket::from_std(socket.into()).unwrap())
+    Arc::new(socket.into())
 }
