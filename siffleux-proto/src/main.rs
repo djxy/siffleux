@@ -1,10 +1,14 @@
 use std::{
     env,
+    hint::spin_loop,
+    io::IoSliceMut,
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     num::ParseIntError,
     sync::{Arc, RwLock},
+    time::Instant,
 };
 
+use quinn_udp::{BATCH_SIZE, RecvMeta, UdpSockRef, UdpSocketState};
 use snow::{Builder, StatelessTransportState};
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
@@ -100,8 +104,8 @@ async fn start_server(private_key: &str) {
         .build_responder()
         .unwrap();
 
-    let ingress_socket = create_udp_socket(9000);
-    let client_socket = create_udp_socket(9001);
+    let (ingress_socket, ingress_socket_state) = create_super_udp_socket(9000);
+    let (client_socket, client_socket_state) = create_udp_socket(9001);
 
     let mut client_payload = [0u8; 1500];
     let mut client_message = [0u8; 1500];
@@ -137,25 +141,62 @@ async fn start_server(private_key: &str) {
 
     let ingress_handle = tokio::task::spawn_blocking(move || {
         let mut ingress_payload = [0u8; 1500];
-        let mut client_message = [0u8; 1500];
+        let mut client_message = [0u8; 65536];
+        let mut metas = [RecvMeta::default(); BATCH_SIZE];
+        let mut payload = vec![0u8; 65536 * BATCH_SIZE];
+        let mut iosm: Vec<IoSliceMut> = payload
+            .chunks_mut(65536)
+            .take(BATCH_SIZE)
+            .map(IoSliceMut::new)
+            .collect();
+        let mut origin_set = false;
 
-        while let Ok((ingress_payload_len, origin)) =
-            ingress_socket_clone.recv_from(&mut ingress_payload)
-        {
-            let client_message_len = transport_write_state
-                .encrypt_payload(&ingress_payload[..ingress_payload_len], &mut client_message)
-                .unwrap();
+        loop {
+            match ingress_socket_state.recv((&ingress_socket_clone).into(), &mut iosm, &mut metas) {
+                Ok(count) => {
+                    for i in 0..count {
+                        let meta = &metas[i];
+                        let packet_data = &iosm[i][..meta.len];
 
-            client_socket_clone
-                .send_to(&client_message[..client_message_len], client_origin)
-                .unwrap();
+                        if let Ok(client_message_len) =
+                            transport_write_state.encrypt_payload(packet_data, &mut client_message)
+                        {
+                            let _ = client_socket_clone
+                                .send_to(&client_message[..client_message_len], client_origin);
+                        }
 
-            if origin_lock_clone.read().unwrap().is_none() {
-                let mut lock = origin_lock_clone.write().unwrap();
+                        if !origin_set && origin_lock_clone.read().unwrap().is_none() {
+                            let mut lock = origin_lock_clone.write().unwrap();
+                            *lock = Some(meta.addr);
+                            origin_set = true;
+                        }
+                    }
 
-                *lock = Some(origin);
+                    println!("Received {} packets in one syscall!", count);
+                }
+                Err(e) => {
+                    eprintln!("UDP receive error: {}", e);
+                }
             }
         }
+
+        // while let Ok((ingress_payload_len, origin)) =
+        //     ingress_socket_clone.recv_from(&mut ingress_payload)
+        // {
+        //     let client_message_len = transport_write_state
+        //         .encrypt_payload(&ingress_payload[..ingress_payload_len], &mut client_message)
+        //         .unwrap();
+
+        //     client_socket_clone
+        //         .send_to(&client_message[..client_message_len], client_origin)
+        //         .unwrap();
+
+        //     if origin_lock_clone.read().unwrap().is_none() {
+        //         let mut lock = origin_lock_clone.write().unwrap();
+
+        //         *lock = Some(origin);
+        //     }
+        // }
     });
 
     let ingress_socket_clone = ingress_socket.clone();
@@ -219,8 +260,8 @@ async fn start_client(server: SocketAddr, target: SocketAddr, server_public_key:
         .build_initiator()
         .unwrap();
 
-    let server_socket = create_udp_socket(0);
-    let target_socket = create_udp_socket(0);
+    let (server_socket, server_socket_state) = create_udp_socket(0);
+    let (target_socket, target_socket_state) = create_udp_socket(0);
 
     server_socket.connect(server).unwrap();
 
@@ -317,7 +358,7 @@ fn shutdown_udp_socket(udp_socket: &UdpSocket) {
     let _ = socket2_ref.shutdown(std::net::Shutdown::Both);
 }
 
-fn create_udp_socket(port: u16) -> Arc<UdpSocket> {
+fn create_udp_socket(port: u16) -> (Arc<UdpSocket>, ()) {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
 
     #[cfg(unix)]
@@ -333,5 +374,28 @@ fn create_udp_socket(port: u16) -> Arc<UdpSocket> {
         .bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port).into())
         .unwrap();
 
-    Arc::new(socket.into())
+    (Arc::new(socket.into()), ())
+}
+
+fn create_super_udp_socket(port: u16) -> (Arc<UdpSocket>, Arc<UdpSocketState>) {
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
+
+    #[cfg(unix)]
+    socket.set_reuse_port(true).unwrap();
+    socket.set_reuse_address(true).unwrap();
+
+    let buffer_size = 4 * 1024 * 1024; // 4mb
+
+    socket.set_recv_buffer_size(buffer_size).unwrap();
+    socket.set_send_buffer_size(buffer_size).unwrap();
+
+    socket
+        .bind(&SocketAddr::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), port).into())
+        .unwrap();
+
+    let state = UdpSocketState::new((&socket).into()).unwrap();
+
+    socket.set_nonblocking(false).unwrap();
+
+    (Arc::new(socket.into()), Arc::new(state))
 }
