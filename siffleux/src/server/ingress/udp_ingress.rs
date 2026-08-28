@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use parking_lot::RwLock;
+use quinn::udp::UdpSocketState;
 use socket2::{Domain, Protocol, Socket, Type};
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -23,7 +24,8 @@ struct UdpIngressInner {
     auth_key: AuthKey,
     /// Socket address the ingress will listen for UDP datagrams
     socket_addr: SocketAddr,
-    udp_socket: tokio::sync::RwLock<Option<(Arc<UdpSocket>, CancellationToken)>>,
+    udp_socket:
+        tokio::sync::RwLock<Option<(Arc<UdpSocket>, Arc<UdpSocketState>, CancellationToken)>>,
     tunnels: RwLock<Vec<Tunnel>>,
     tunnel_rotation: AtomicUsize,
 }
@@ -39,15 +41,16 @@ impl Ingress for UdpIngress {
     }
 
     async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
-        let Some((udp_socket, cancellation_token)) = self
-            .inner
-            .udp_socket
-            .read()
-            .await
-            .as_ref()
-            .map(|(udp_socket, cancellation_token)| {
-                (udp_socket.clone(), cancellation_token.clone())
-            })
+        let Some((udp_socket, udp_socket_state, cancellation_token)) =
+            self.inner.udp_socket.read().await.as_ref().map(
+                |(udp_socket, udp_socket_state, cancellation_token)| {
+                    (
+                        udp_socket.clone(),
+                        udp_socket_state.clone(),
+                        cancellation_token.clone(),
+                    )
+                },
+            )
         else {
             return Err(Error::IngressNotListening);
         };
@@ -124,7 +127,7 @@ impl Ingress for UdpIngress {
     }
 
     async fn start(&self) -> Result<(), Error> {
-        let (udp_socket, cancellation_token) = {
+        let (udp_socket, udp_socket_state, cancellation_token) = {
             let mut udp_socket = self.inner.udp_socket.write().await;
 
             if udp_socket.is_some() {
@@ -138,21 +141,25 @@ impl Ingress for UdpIngress {
             #[cfg(unix)]
             socket.set_reuse_port(true)?;
             socket.set_reuse_address(true)?;
-            socket.set_nonblocking(true)?;
 
-            let buffer_size = 16 * 1024 * 1024; // 4mb
+            let buffer_size = 16 * 1024 * 1024; // 16mb
 
             socket.set_recv_buffer_size(buffer_size)?;
             socket.set_send_buffer_size(buffer_size)?;
 
             socket.bind(&self.inner.socket_addr.into())?;
 
+            let udp_socket_state = Arc::new(UdpSocketState::new((&socket).into())?);
             let udp_socket_arc = Arc::new(UdpSocket::from_std(socket.into())?);
             let cancellation_token = CancellationToken::new();
 
-            *udp_socket = Some((udp_socket_arc.clone(), cancellation_token.clone()));
+            *udp_socket = Some((
+                udp_socket_arc.clone(),
+                udp_socket_state.clone(),
+                cancellation_token.clone(),
+            ));
 
-            (udp_socket_arc, cancellation_token)
+            (udp_socket_arc, udp_socket_state, cancellation_token)
         };
 
         let self_clone = self.clone();
@@ -170,10 +177,9 @@ impl Ingress for UdpIngress {
     }
 
     async fn stop(&self) -> Result<(), Error> {
-        if let Some((udp_socket, cancellation_token)) = self.inner.udp_socket.write().await.take() {
+        if let Some((_, _, cancellation_token)) = self.inner.udp_socket.write().await.take() {
             info!(ingress_id = %self.id(), "Stopping UDP ingress");
             cancellation_token.cancel();
-            drop(udp_socket);
 
             Ok(())
         } else {

@@ -4,7 +4,10 @@ use std::{
     time::Duration,
 };
 
-use quinn::{ClientConfig, Endpoint, TransportConfig, crypto::rustls::QuicClientConfig};
+use quinn::{
+    ClientConfig, Endpoint, TransportConfig, congestion::BbrConfig,
+    crypto::rustls::QuicClientConfig,
+};
 use tracing::info;
 
 use crate::{
@@ -71,6 +74,8 @@ impl Authentication for V1CertifcateHash {
 
         transport_config.datagram_receive_buffer_size(Some(256 * 1024 * 1024));
         transport_config.datagram_send_buffer_size(256 * 1024 * 1024);
+
+        transport_config.congestion_controller_factory(Arc::new(BbrConfig::default()));
 
         let mut client_config =
             ClientConfig::new(Arc::new(QuicClientConfig::try_from(tls_config)?));

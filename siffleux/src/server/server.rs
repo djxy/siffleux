@@ -7,6 +7,7 @@ use crate::server::protocols::v1::{
 use crate::{Error, IngressId, frames};
 use crate::{Ingress, ServerId};
 use parking_lot::{Mutex, RwLock};
+use quinn::congestion::BbrConfig;
 use quinn::{Endpoint, Incoming, ServerConfig, TransportConfig, VarInt};
 use rustls::pki_types::{CertificateDer, PrivateKeyDer, PrivatePkcs8KeyDer};
 use std::collections::HashMap;
@@ -56,6 +57,8 @@ impl Server {
 
         transport_config.datagram_receive_buffer_size(Some(256 * 1024 * 1024));
         transport_config.datagram_send_buffer_size(256 * 1024 * 1024);
+
+        transport_config.congestion_controller_factory(Arc::new(BbrConfig::default()));
 
         let mut server_config = ServerConfig::with_crypto(Arc::new(
             quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)?,

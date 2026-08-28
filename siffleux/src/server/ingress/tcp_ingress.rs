@@ -4,7 +4,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
-use tokio::net::{TcpListener, TcpStream};
+use tokio::net::{TcpListener, TcpSocket, TcpStream};
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
@@ -74,7 +74,20 @@ impl Ingress for TcpIngress {
 
             info!(ingress_id = %self.id(), "Starting TCP ingress...");
 
-            let tcp_listener_arc = Arc::new(TcpListener::bind(self.inner.socket_addr).await?);
+            let socket = TcpSocket::new_v4()?;
+
+            socket.set_reuseaddr(true)?;
+            socket.set_reuseport(true)?;
+            socket.set_zero_linger()?;
+
+            let buffer_size = 16 * 1024 * 1024; // 16mb
+
+            socket.set_recv_buffer_size(buffer_size)?;
+            socket.set_send_buffer_size(buffer_size)?;
+
+            socket.bind(self.inner.socket_addr)?;
+
+            let tcp_listener_arc = Arc::new(socket.listen(1024)?);
 
             {
                 let mut tcp_listener_socket_addr = self.inner.tcp_listener_socket_addr.lock();

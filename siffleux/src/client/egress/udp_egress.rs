@@ -357,7 +357,7 @@ impl UdpEgress {
         socket.set_reuse_address(true)?;
         socket.set_nonblocking(true)?;
 
-        let buffer_size = 16 * 1024 * 1024; // 4mb
+        let buffer_size = 16 * 1024 * 1024; // 16mb
 
         socket.set_recv_buffer_size(buffer_size)?;
         socket.set_send_buffer_size(buffer_size)?;
