@@ -50,12 +50,12 @@ impl Server {
 
         transport_config.send_window(256 * 1024 * 1024);
         transport_config.receive_window((256 * 1024 * 1024u32).into());
-        transport_config.stream_receive_window((2 * 1024 * 1024u32).into());
+        transport_config.stream_receive_window((4 * 1024 * 1024u32).into());
+
+        transport_config.max_concurrent_bidi_streams(1000u32.into());
 
         transport_config.datagram_receive_buffer_size(Some(256 * 1024 * 1024));
         transport_config.datagram_send_buffer_size(256 * 1024 * 1024);
-
-        transport_config.max_concurrent_bidi_streams(1000u32.into());
 
         let mut server_config = ServerConfig::with_crypto(Arc::new(
             quinn::crypto::rustls::QuicServerConfig::try_from(tls_config)?,

@@ -1,6 +1,7 @@
 use std::{
     net::{Ipv4Addr, SocketAddr},
     sync::Arc,
+    time::Duration,
 };
 
 use quinn::{ClientConfig, Endpoint, TransportConfig, crypto::rustls::QuicClientConfig};
@@ -59,9 +60,12 @@ impl Authentication for V1CertifcateHash {
 
         let mut transport_config = TransportConfig::default();
 
+        transport_config.keep_alive_interval(Some(Duration::from_secs(5)));
+        transport_config.max_idle_timeout(Some(Duration::from_secs(30).try_into().unwrap()));
+
         transport_config.send_window(256 * 1024 * 1024);
         transport_config.receive_window((256 * 1024 * 1024u32).into());
-        transport_config.stream_receive_window((2 * 1024 * 1024u32).into());
+        transport_config.stream_receive_window((4 * 1024 * 1024u32).into());
 
         transport_config.max_concurrent_bidi_streams(1000u32.into());
 

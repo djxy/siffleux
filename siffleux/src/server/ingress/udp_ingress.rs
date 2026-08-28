@@ -140,7 +140,7 @@ impl Ingress for UdpIngress {
             socket.set_reuse_address(true)?;
             socket.set_nonblocking(true)?;
 
-            let buffer_size = 4 * 1024 * 1024; // 4mb
+            let buffer_size = 16 * 1024 * 1024; // 4mb
 
             socket.set_recv_buffer_size(buffer_size)?;
             socket.set_send_buffer_size(buffer_size)?;

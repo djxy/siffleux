@@ -4,6 +4,7 @@ version.workspace = true
 edition = "2024"
 
 [dependencies]
+crossbeam-channel = "0.5.16"
 quinn-udp = { version = "0.6.1", features = ["fast-apple-datapath"] }
 snow = { version = "0.10.0", features = ["ring-accelerated"] }
 socket2 = "0.6.5"

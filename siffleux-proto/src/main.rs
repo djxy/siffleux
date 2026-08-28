@@ -1,14 +1,12 @@
 use std::{
     env,
-    hint::spin_loop,
     io::IoSliceMut,
     net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket},
     num::ParseIntError,
     sync::{Arc, RwLock},
-    time::Instant,
 };
 
-use quinn_udp::{BATCH_SIZE, RecvMeta, UdpSockRef, UdpSocketState};
+use quinn_udp::{BATCH_SIZE, RecvMeta, UdpSocketState};
 use snow::{Builder, StatelessTransportState};
 use socket2::{Domain, Protocol, Socket, Type};
 use tokio::{
@@ -139,7 +137,7 @@ async fn start_server(private_key: &str) {
     let origin_lock: Arc<RwLock<Option<SocketAddr>>> = Arc::new(RwLock::new(None));
     let origin_lock_clone = origin_lock.clone();
 
-    let ingress_handle = tokio::task::spawn_blocking(move || {
+    let ingress_handle = tokio::task::spawn(async move {
         let mut ingress_payload = [0u8; 1500];
         let mut client_message = [0u8; 65536];
         let mut metas = [RecvMeta::default(); BATCH_SIZE];
@@ -152,33 +150,82 @@ async fn start_server(private_key: &str) {
         let mut origin_set = false;
 
         loop {
-            match ingress_socket_state.recv((&ingress_socket_clone).into(), &mut iosm, &mut metas) {
-                Ok(count) => {
-                    for i in 0..count {
-                        let meta = &metas[i];
-                        let packet_data = &iosm[i][..meta.len];
+            ingress_socket_clone
+                .async_io(tokio::io::Interest::READABLE, || -> std::io::Result<()> {
+                    loop {
+                        match ingress_socket_state.recv(
+                            (&ingress_socket_clone).into(),
+                            &mut iosm,
+                            &mut metas,
+                        ) {
+                            Ok(count) if count > 0 => {
+                                for i in 0..count {
+                                    let meta = &metas[i];
+                                    let packet_data = &iosm[i][..meta.len];
 
-                        if let Ok(client_message_len) =
-                            transport_write_state.encrypt_payload(packet_data, &mut client_message)
-                        {
-                            let _ = client_socket_clone
-                                .send_to(&client_message[..client_message_len], client_origin);
-                        }
+                                    if let Ok(client_message_len) = transport_write_state
+                                        .encrypt_payload(packet_data, &mut client_message)
+                                    {
+                                        let _ = client_socket_clone.send_to(
+                                            &client_message[..client_message_len],
+                                            client_origin,
+                                        );
+                                    }
 
-                        if !origin_set && origin_lock_clone.read().unwrap().is_none() {
-                            let mut lock = origin_lock_clone.write().unwrap();
-                            *lock = Some(meta.addr);
-                            origin_set = true;
+                                    if !origin_set && origin_lock_clone.read().unwrap().is_none() {
+                                        let mut lock = origin_lock_clone.write().unwrap();
+                                        *lock = Some(meta.addr);
+                                        origin_set = true;
+                                    }
+                                }
+                                continue;
+                            }
+                            Ok(_) => {
+                                // 0 packets read, yield back to Tokio reactor
+                                return Err(std::io::ErrorKind::WouldBlock.into());
+                            }
+                            Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                                // Buffer is fully drained! Return WouldBlock so Tokio registers epoll interest again
+                                return Err(e);
+                            }
+                            Err(e) => {
+                                eprintln!("UDP receive error: {}", e);
+                                return Err(e);
+                            }
                         }
                     }
-
-                    println!("Received {} packets in one syscall!", count);
-                }
-                Err(e) => {
-                    eprintln!("UDP receive error: {}", e);
-                }
-            }
+                })
+                .await
+                .unwrap();
         }
+        // loop {
+        //     match ingress_socket_state.recv((&ingress_socket_clone).into(), &mut iosm, &mut metas) {
+        //         Ok(count) => {
+        //             for i in 0..count {
+        //                 let meta = &metas[i];
+        //                 let packet_data = &iosm[i][..meta.len];
+
+        //                 if let Ok(client_message_len) =
+        //                     transport_write_state.encrypt_payload(packet_data, &mut client_message)
+        //                 {
+        //                     let _ = client_socket_clone
+        //                         .send_to(&client_message[..client_message_len], client_origin);
+        //                 }
+
+        //                 if !origin_set && origin_lock_clone.read().unwrap().is_none() {
+        //                     let mut lock = origin_lock_clone.write().unwrap();
+        //                     *lock = Some(meta.addr);
+        //                     origin_set = true;
+        //                 }
+        //             }
+
+        //             println!("Received {} packets in one syscall!", count);
+        //         }
+        //         Err(e) => {
+        //             eprintln!("UDP receive error: {}", e);
+        //         }
+        //     }
+        // }
 
         // while let Ok((ingress_payload_len, origin)) =
         //     ingress_socket_clone.recv_from(&mut ingress_payload)
@@ -202,7 +249,7 @@ async fn start_server(private_key: &str) {
     let ingress_socket_clone = ingress_socket.clone();
     let client_socket_clone = client_socket.clone();
 
-    let client_handle = tokio::task::spawn_blocking(move || {
+    let client_handle = tokio::task::spawn(async move {
         let mut ingress_payload = [0u8; 1500];
         let mut client_message = [0u8; 1500];
         let mut origin: Option<SocketAddr> = None;
@@ -220,6 +267,7 @@ async fn start_server(private_key: &str) {
 
             ingress_socket_clone
                 .send_to(&ingress_payload[..ingress_payload_len], origin.unwrap())
+                .await
                 .unwrap();
         }
     });
@@ -238,10 +286,12 @@ async fn start_server(private_key: &str) {
         _ = sigterm => {},
     }
 
-    shutdown_udp_socket(&ingress_socket);
-    shutdown_udp_socket(&client_socket);
-
     println!("1");
+
+    let _ = ingress_handle.abort();
+    let _ = client_handle.abort();
+
+    shutdown_udp_socket(&client_socket);
 
     let _ = ingress_handle.await;
     println!("2");
@@ -377,7 +427,7 @@ fn create_udp_socket(port: u16) -> (Arc<UdpSocket>, ()) {
     (Arc::new(socket.into()), ())
 }
 
-fn create_super_udp_socket(port: u16) -> (Arc<UdpSocket>, Arc<UdpSocketState>) {
+fn create_super_udp_socket(port: u16) -> (Arc<tokio::net::UdpSocket>, Arc<UdpSocketState>) {
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP)).unwrap();
 
     #[cfg(unix)]
@@ -395,7 +445,8 @@ fn create_super_udp_socket(port: u16) -> (Arc<UdpSocket>, Arc<UdpSocketState>) {
 
     let state = UdpSocketState::new((&socket).into()).unwrap();
 
-    socket.set_nonblocking(false).unwrap();
-
-    (Arc::new(socket.into()), Arc::new(state))
+    (
+        Arc::new(tokio::net::UdpSocket::from_std(socket.into()).unwrap()),
+        Arc::new(state),
+    )
 }
