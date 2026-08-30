@@ -52,11 +52,11 @@ pub enum Error {
     #[error("Ingress has no tunnel connected")]
     IngressNoTunnelConnected,
 
-    #[error("Ingress is already listening")]
-    IngressAlreadyListening,
+    #[error("Ingress is already started")]
+    IngressAlreadyStarted,
 
-    #[error("Ingress is not listening")]
-    IngressNotListening,
+    #[error("Ingress is not started")]
+    IngressNotStarted,
 
     #[error("Invalid auth_key reason={reason}")]
     InvalidAuthKey { reason: String },

@@ -1,18 +1,25 @@
 use async_trait::async_trait;
 use parking_lot::RwLock;
-use quinn::udp::UdpSocketState;
 use socket2::{Domain, Protocol, Socket, Type};
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::net::UdpSocket;
+use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::common::AuthKey;
 use crate::frames::v1::{extract_origin_socket_addr_from_datagram, to_datagram};
+use crate::server::State;
 use crate::{Error, Tunnel};
 use crate::{Ingress, IngressId};
+
+struct UdpIngressProcess {
+    /// Token used to stop all the tasks related to the process.
+    token: CancellationToken,
+    udp_socket: UdpSocket,
+}
 
 #[derive(Clone)]
 pub struct UdpIngress {
@@ -22,12 +29,12 @@ pub struct UdpIngress {
 struct UdpIngressInner {
     id: IngressId,
     auth_key: AuthKey,
-    /// Socket address the ingress will listen for UDP datagrams
-    socket_addr: SocketAddr,
-    udp_socket:
-        tokio::sync::RwLock<Option<(Arc<UdpSocket>, Arc<UdpSocketState>, CancellationToken)>>,
+    listen_addr: SocketAddr,
+    process: RwLock<Option<Arc<UdpIngressProcess>>>,
     tunnels: RwLock<Vec<Tunnel>>,
     tunnel_rotation: AtomicUsize,
+    state_sender: watch::Sender<State>,
+    state_receiver: watch::Receiver<State>,
 }
 
 #[async_trait]
@@ -40,80 +47,19 @@ impl Ingress for UdpIngress {
         &self.inner.auth_key
     }
 
-    async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
-        let Some((udp_socket, udp_socket_state, cancellation_token)) =
-            self.inner.udp_socket.read().await.as_ref().map(
-                |(udp_socket, udp_socket_state, cancellation_token)| {
-                    (
-                        udp_socket.clone(),
-                        udp_socket_state.clone(),
-                        cancellation_token.clone(),
-                    )
-                },
-            )
-        else {
-            return Err(Error::IngressNotListening);
+    fn state(&self) -> watch::Receiver<State> {
+        self.inner.state_receiver.clone()
+    }
+
+    fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
+        let Some(process) = self.inner.process.read().as_ref().cloned() else {
+            return Err(Error::IngressNotStarted);
         };
 
-        let tunnel_clone = tunnel.clone();
-        let self_clone = self.clone();
-        let udp_socket = udp_socket.clone();
-        let cancellation_token = cancellation_token.clone();
+        self.inner.tunnels.write().push(tunnel.clone());
 
-        tokio::spawn(async move {
-            loop {
-                tokio::select! {
-                    bytes_result = tunnel_clone.read_datagram() => {
-                        match bytes_result {
-                            Ok(mut bytes) => {
-                                if let Some(origin_socket_addr) = extract_origin_socket_addr_from_datagram(&mut bytes) {
-                                    let _ = udp_socket.send_to(&bytes[..], origin_socket_addr).await;
-                                };
-                            }
-                            Err(e) => {
-                                if matches!(e, Error::ClosedTunnel) {
-                                    warn!(
-                                        ingress_id = %self_clone.id(),
-                                        tunnel_id = %&tunnel_clone.id(),
-                                        "Tunnel closed. Stopping receiving from it."
-                                    );
-                                    return;
-                                } else {
-                                    error!(
-                                        ingress_id = %self_clone.id(),
-                                        tunnel_id = %&tunnel_clone.id(),
-                                        "Error while receiving UDP datagram from tunnel: {:?}",
-                                        e
-                                    );
-                                }
-                            }
-                        }
-                    }
-                    _ = cancellation_token.cancelled() => {
-                        debug!(
-                            ingress_id = %self_clone.id(),
-                            tunnel_id = %&tunnel_clone.id(),
-                            "Closed tunnel => UDP socket"
-                        );
-                        tunnel_clone.close().await;
-                        return;
-                    }
-                }
-            }
-        });
-
-        let self_clone = self.clone();
-        let tunnel_clone = tunnel.clone();
-
-        tokio::spawn(async move {
-            tunnel_clone.closed().await;
-
-            let mut tunnels = self_clone.inner.tunnels.write();
-
-            if let Some(i) = tunnels.iter().position(|t| t.id() == tunnel_clone.id()) {
-                tunnels.swap_remove(i);
-            }
-        });
+        tokio::spawn(self.clone().start_tunnel_to_socket(process, tunnel.clone()));
+        tokio::spawn(self.clone().handle_tunnel_close(tunnel.clone()));
 
         info!(
             ingress_id = %self.id(),
@@ -121,106 +67,96 @@ impl Ingress for UdpIngress {
             "Assigned tunnel to UDP ingress."
         );
 
-        self.inner.tunnels.write().push(tunnel);
-
         Ok(())
     }
 
-    async fn start(&self) -> Result<(), Error> {
-        let (udp_socket, udp_socket_state, cancellation_token) = {
-            let mut udp_socket = self.inner.udp_socket.write().await;
+    fn start(&self) -> Result<(), Error> {
+        let mut process_guard = self.inner.process.write();
 
-            if udp_socket.is_some() {
-                return Err(Error::IngressAlreadyListening);
-            }
+        if process_guard.is_some() {
+            return Err(Error::IngressAlreadyStarted);
+        }
 
-            info!(ingress_id = %self.id(), "Starting UDP ingress");
-
-            let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
-
-            #[cfg(unix)]
-            socket.set_reuse_port(true)?;
-            socket.set_reuse_address(true)?;
-
-            let buffer_size = 16 * 1024 * 1024; // 16mb
-
-            socket.set_recv_buffer_size(buffer_size)?;
-            socket.set_send_buffer_size(buffer_size)?;
-
-            socket.bind(&self.inner.socket_addr.into())?;
-
-            let udp_socket_state = Arc::new(UdpSocketState::new((&socket).into())?);
-            let udp_socket_arc = Arc::new(UdpSocket::from_std(socket.into())?);
-            let cancellation_token = CancellationToken::new();
-
-            *udp_socket = Some((
-                udp_socket_arc.clone(),
-                udp_socket_state.clone(),
-                cancellation_token.clone(),
-            ));
-
-            (udp_socket_arc, udp_socket_state, cancellation_token)
-        };
-
-        let self_clone = self.clone();
-        let udp_socket_addr = udp_socket.local_addr().unwrap();
-
-        tokio::spawn(async move {
-            self_clone
-                .handle_socket_to_tunnel(udp_socket, cancellation_token)
-                .await;
+        let token = CancellationToken::new();
+        let udp_socket = self.create_udp_socket()?;
+        let process = Arc::new(UdpIngressProcess {
+            token: token.clone(),
+            udp_socket: udp_socket,
         });
 
-        info!(ingress_id = %self.id(), "Ready to receive UDP datagrams on {udp_socket_addr}.");
+        tokio::spawn(self.clone().start_socket_to_tunnel(process.clone()));
+
+        *process_guard = Some(process);
 
         Ok(())
     }
 
-    async fn stop(&self) -> Result<(), Error> {
-        if let Some((_, _, cancellation_token)) = self.inner.udp_socket.write().await.take() {
-            info!(ingress_id = %self.id(), "Stopping UDP ingress");
-            cancellation_token.cancel();
+    fn stop(&self) -> Result<(), Error> {
+        let process = self.inner.process.write().take();
 
-            Ok(())
-        } else {
-            Err(Error::IngressNotListening)
+        match process {
+            Some(process) => {
+                info!(egress_id = %self.id(), "Stopping UDP ingress");
+                process.token.cancel();
+                Ok(())
+            }
+            None => Err(Error::EgressNotStarted),
         }
     }
 }
 
 impl UdpIngress {
-    pub fn new(id: IngressId, auth_key: AuthKey, socket_addr: SocketAddr) -> Self {
+    pub fn new(id: IngressId, auth_key: AuthKey, listen_addr: SocketAddr) -> Self {
+        let (state_sender, state_receiver) = watch::channel(State::Stopped);
+
         Self {
             inner: Arc::new(UdpIngressInner {
                 id,
                 auth_key,
-                socket_addr,
+                listen_addr,
+                process: RwLock::new(None),
                 tunnels: RwLock::new(Vec::new()),
-                udp_socket: tokio::sync::RwLock::new(None),
                 tunnel_rotation: AtomicUsize::new(0),
+                state_sender,
+                state_receiver,
             }),
         }
     }
 
-    pub async fn get_socket_addr(&self) -> Option<SocketAddr> {
+    pub fn get_socket_addr(&self) -> Option<SocketAddr> {
         self.inner
-            .udp_socket
+            .process
             .read()
-            .await
             .as_ref()
-            .map(|udp_socket| udp_socket.0.local_addr().unwrap().clone())
+            .map(|p| p.udp_socket.local_addr().unwrap().clone())
     }
 
-    async fn handle_socket_to_tunnel(
-        &self,
-        udp_socket: Arc<UdpSocket>,
-        cancellation_token: CancellationToken,
-    ) {
+    async fn start_socket_to_tunnel(self, process: Arc<UdpIngressProcess>) {
+        info!(ingress_id = %self.id(), "Starting UDP ingress");
+
+        let _ = self.inner.state_sender.send(State::Starting);
+
+        if let Err(e) = process.udp_socket.connect(self.inner.listen_addr).await {
+            let _ = self.inner.state_sender.send(State::Stopped);
+
+            error!(egress_id = %self.id(), "Failed to start UDP ingress: {e}");
+        }
+
+        if let Err(e) = process.udp_socket.writable().await {
+            let _ = self.inner.state_sender.send(State::Stopped);
+
+            error!(egress_id = %self.id(), "Failed to start UDP ingress: {e}");
+        }
+
+        info!(ingress_id = %self.id(), "Ready to receive UDP datagrams on {}.", process.udp_socket.local_addr().unwrap());
+
+        let _ = self.inner.state_sender.send(State::Ready);
+
         let mut buffer = [0u8; 1500];
 
         loop {
             tokio::select! {
-                result = udp_socket.recv_from(&mut buffer) => {
+                result = process.udp_socket.recv_from(&mut buffer) => {
                     match result {
                         Ok((len, socket_addr)) => {
                             if let Err(e) = self.send_datagram_to_tunnel(socket_addr, &buffer, len).await {
@@ -235,12 +171,16 @@ impl UdpIngress {
                         }
                     }
                 }
-                _ = cancellation_token.cancelled() => {
+                _ = process.token.cancelled() => {
                     debug!(ingress_id = %self.id(), "Stopped socket => tunnel.");
-                    return;
+                    break;
                 }
             }
         }
+
+        let _ = self.inner.state_sender.send(State::Stopped);
+
+        info!(egress_id = %self.id(), "Stopped UDP ingress");
     }
 
     async fn send_datagram_to_tunnel(
@@ -271,5 +211,78 @@ impl UdpIngress {
         }
 
         Ok(())
+    }
+
+    async fn start_tunnel_to_socket(self, process: Arc<UdpIngressProcess>, tunnel: Tunnel) {
+        loop {
+            tokio::select! {
+                bytes_result = tunnel.read_datagram() => {
+                    match bytes_result {
+                        Ok(mut bytes) => {
+                            if let Some(origin_socket_addr) = extract_origin_socket_addr_from_datagram(&mut bytes) {
+                                let _ = process.udp_socket.send_to(&bytes[..], origin_socket_addr).await;
+                            };
+                        }
+                        Err(e) => {
+                            if matches!(e, Error::ClosedTunnel) {
+                                warn!(
+                                    ingress_id = %self.id(),
+                                    tunnel_id = %&tunnel.id(),
+                                    "Tunnel closed. Stopping receiving from it."
+                                );
+                                return;
+                            } else {
+                                error!(
+                                    ingress_id = %self.id(),
+                                    tunnel_id = %&tunnel.id(),
+                                    "Error while receiving UDP datagram from tunnel: {:?}",
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
+                _ = process.token.cancelled() => {
+                    debug!(
+                        ingress_id = %self.id(),
+                        tunnel_id = %&tunnel.id(),
+                        "Closed tunnel => UDP socket"
+                    );
+                    tunnel.close().await;
+                    return;
+                }
+            }
+        }
+    }
+
+    async fn handle_tunnel_close(self, tunnel: Tunnel) {
+        tunnel.closed().await;
+
+        let mut tunnels = self.inner.tunnels.write();
+
+        if let Some(i) = tunnels.iter().position(|t| t.id() == tunnel.id()) {
+            tunnels.swap_remove(i);
+        }
+    }
+
+    fn create_udp_socket(&self) -> Result<UdpSocket, Error> {
+        let local_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
+
+        #[cfg(unix)]
+        socket.set_reuse_port(true)?;
+        socket.set_reuse_address(true)?;
+        socket.set_nonblocking(true)?;
+
+        let buffer_size = 16 * 1024 * 1024; // 16mb
+
+        socket.set_recv_buffer_size(buffer_size)?;
+        socket.set_send_buffer_size(buffer_size)?;
+
+        socket.bind(&local_addr.into())?;
+
+        let udp_socket = UdpSocket::from_std(socket.into())?;
+
+        Ok(udp_socket)
     }
 }

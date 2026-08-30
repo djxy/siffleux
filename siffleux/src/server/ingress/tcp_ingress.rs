@@ -69,7 +69,7 @@ impl Ingress for TcpIngress {
             let mut tcp_listener = self.inner.tcp_listener.lock().await;
 
             if tcp_listener.is_some() {
-                return Err(Error::IngressAlreadyListening);
+                return Err(Error::IngressAlreadyStarted);
             }
 
             info!(ingress_id = %self.id(), "Starting TCP ingress...");
@@ -115,7 +115,7 @@ impl Ingress for TcpIngress {
 
             Ok(())
         } else {
-            Err(Error::IngressNotListening)
+            Err(Error::IngressNotStarted)
         }
     }
 }

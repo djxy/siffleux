@@ -73,7 +73,7 @@ impl Egress for UdpEgress {
             return Err(Error::EgressAlreadyStarted);
         }
 
-        info!(egress_id = %self.id(), "Starting");
+        info!(egress_id = %self.id(), "Starting UDP egress");
 
         let _ = self.inner.state_sender.send(State::Starting);
 
@@ -93,11 +93,11 @@ impl Egress for UdpEgress {
 
         match process {
             Some(process) => {
-                info!(egress_id = %self.id(), "Stopping");
+                info!(egress_id = %self.id(), "Stopping UDP egress");
                 process.token.cancel();
                 process.tunnel_task.await?;
                 let _ = self.inner.state_sender.send(State::Stopped);
-                info!(egress_id = %self.id(), "Stopped");
+                info!(egress_id = %self.id(), "Stopped UDP egress");
 
                 Ok(())
             }
@@ -259,7 +259,7 @@ impl UdpEgress {
         let self_clone = self.clone();
 
         tokio::spawn(async move {
-            let Ok(udp_socket) = self_clone.get_udp_socket().await else {
+            let Ok(udp_socket) = self_clone.create_udp_socket().await else {
                 let _ = expired_origin_socket_addr_sender.send(origin_socket_addr);
                 return;
             };
@@ -348,7 +348,7 @@ impl UdpEgress {
         });
     }
 
-    async fn get_udp_socket(&self) -> Result<UdpSocket, Error> {
+    async fn create_udp_socket(&self) -> Result<UdpSocket, Error> {
         let local_addr = SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0);
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::UDP))?;
 
