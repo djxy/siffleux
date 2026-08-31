@@ -6,6 +6,7 @@ use quinn::{
 use std::string::FromUtf8Error;
 use std::sync::PoisonError;
 use thiserror::Error;
+use tokio::sync::watch::error::RecvError;
 use tokio::task::JoinError;
 
 use crate::code::{CONNECTION_EOF, REJECTED_AUTH_KEY, REJECTED_INGRESS_ID};
@@ -48,9 +49,6 @@ pub enum Error {
 
     #[error("Egress is not started")]
     EgressNotStarted,
-
-    #[error("Ingress has no tunnel connected")]
-    IngressNoTunnelConnected,
 
     #[error("Ingress is already started")]
     IngressAlreadyStarted,
@@ -219,6 +217,12 @@ impl From<JoinError> for Error {
 
 impl From<SendDatagramError> for Error {
     fn from(value: SendDatagramError) -> Self {
+        Error::Unknown(value.into())
+    }
+}
+
+impl From<RecvError> for Error {
+    fn from(value: RecvError) -> Self {
         Error::Unknown(value.into())
     }
 }

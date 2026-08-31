@@ -78,7 +78,7 @@ async fn test_send_and_receive_data() {
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
     );
 
     tcp_ingress.start().await.unwrap();
@@ -128,11 +128,11 @@ async fn test_send_and_receive_data() {
 
     tcp_egress
         .state()
-        .wait_for(|state| *state == State::Ready)
+        .wait_for(|state| *state == State::Started)
         .await
         .unwrap();
 
-    let mut stream = TcpStream::connect(tcp_ingress.socket_addr().unwrap())
+    let mut stream = TcpStream::connect(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 9000))
         .await
         .unwrap();
 
@@ -177,7 +177,7 @@ async fn test_open_multiple_connections() {
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
     );
 
     tcp_ingress.start().await.unwrap();
@@ -227,14 +227,14 @@ async fn test_open_multiple_connections() {
 
     tcp_egress
         .state()
-        .wait_for(|state| *state == State::Ready)
+        .wait_for(|state| *state == State::Started)
         .await
         .unwrap();
 
     let mut streams: Vec<TcpStream> = Vec::new();
 
     for _ in 0..10 {
-        let mut stream = TcpStream::connect(tcp_ingress.socket_addr().unwrap())
+        let mut stream = TcpStream::connect(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 9000))
             .await
             .unwrap();
 
@@ -286,7 +286,7 @@ async fn test_target_tcp_write_dropped() {
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
     );
 
     tcp_ingress.start().await.unwrap();
@@ -325,11 +325,11 @@ async fn test_target_tcp_write_dropped() {
 
     tcp_egress
         .state()
-        .wait_for(|state| *state == State::Ready)
+        .wait_for(|state| *state == State::Started)
         .await
         .unwrap();
 
-    let mut stream = TcpStream::connect(tcp_ingress.socket_addr().unwrap())
+    let mut stream = TcpStream::connect(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 9000))
         .await
         .unwrap();
 
@@ -367,7 +367,7 @@ async fn test_origin_tcp_write_dropped() {
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
     );
 
     tcp_ingress.start().await.unwrap();
@@ -406,11 +406,11 @@ async fn test_origin_tcp_write_dropped() {
 
     tcp_egress
         .state()
-        .wait_for(|state| *state == State::Ready)
+        .wait_for(|state| *state == State::Started)
         .await
         .unwrap();
 
-    let tcp_stream = TcpStream::connect(tcp_ingress.socket_addr().unwrap())
+    let tcp_stream = TcpStream::connect(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 9000))
         .await
         .unwrap();
 

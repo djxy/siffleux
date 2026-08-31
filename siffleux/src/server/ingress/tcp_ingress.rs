@@ -1,17 +1,22 @@
-use async_trait::async_trait;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
+use tokio::sync::{Mutex, watch};
 use tokio_util::sync::CancellationToken;
-use tracing::{debug, error, info};
+use tracing::{debug, error, info, warn};
 
 use crate::common::AuthKey;
 use crate::common::protocols::v1::handle_protocol_v1_tcp_stream;
-use crate::{Error, Tunnel};
+use crate::{Error, State, Tunnel};
 use crate::{Ingress, IngressId};
+
+struct TcpIngressProcess {
+    /// Token used to stop all the tasks related to the process.
+    token: CancellationToken,
+}
 
 #[derive(Clone)]
 pub struct TcpIngress {
@@ -21,15 +26,16 @@ pub struct TcpIngress {
 struct TcpIngressInner {
     id: IngressId,
     auth_key: AuthKey,
-    /// Socket address the ingress will listen for TCP connections
-    socket_addr: SocketAddr,
+    listen_addr: SocketAddr,
+    process_lock: Mutex<()>,
+    process: RwLock<Option<Arc<TcpIngressProcess>>>,
     tunnels: RwLock<Vec<Tunnel>>,
-    tcp_listener: tokio::sync::Mutex<Option<Arc<TcpListener>>>,
-    tcp_listener_socket_addr: Mutex<Option<SocketAddr>>,
     tunnel_rotation: AtomicUsize,
+    state_sender: watch::Sender<State>,
+    state_receiver: watch::Receiver<State>,
 }
 
-#[async_trait]
+#[async_trait::async_trait]
 impl Ingress for TcpIngress {
     fn id(&self) -> &IngressId {
         &self.inner.id
@@ -39,9 +45,18 @@ impl Ingress for TcpIngress {
         &self.inner.auth_key
     }
 
+    fn state(&self) -> watch::Receiver<State> {
+        self.inner.state_receiver.clone()
+    }
+
     async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
-        let tunnel_clone = tunnel.clone();
-        let self_clone = self.clone();
+        if self.inner.process.read().as_ref().is_some() {
+            return Err(Error::IngressNotStarted);
+        }
+
+        self.inner.tunnels.write().push(tunnel.clone());
+
+        tokio::spawn(self.clone().handle_tunnel_close(tunnel.clone()));
 
         info!(
             ingress_id = %self.id(),
@@ -49,156 +64,145 @@ impl Ingress for TcpIngress {
             "Assigned tunnel to TCP ingress."
         );
 
-        tokio::spawn(async move {
-            tunnel_clone.closed().await;
-
-            let mut tunnels = self_clone.inner.tunnels.write();
-
-            if let Some(i) = tunnels.iter().position(|t| t.id() == tunnel_clone.id()) {
-                tunnels.swap_remove(i);
-            }
-        });
-
-        self.inner.tunnels.write().push(tunnel);
-
         Ok(())
     }
 
     async fn start(&self) -> Result<(), Error> {
-        let tcp_listener = {
-            let mut tcp_listener = self.inner.tcp_listener.lock().await;
+        let _lock = self.inner.process_lock.lock().await;
 
-            if tcp_listener.is_some() {
-                return Err(Error::IngressAlreadyStarted);
-            }
+        if self.inner.process.read().is_some() {
+            return Err(Error::IngressAlreadyStarted);
+        }
 
-            info!(ingress_id = %self.id(), "Starting TCP ingress...");
-
-            let socket = TcpSocket::new_v4()?;
-
-            socket.set_reuseaddr(true)?;
-            socket.set_reuseport(true)?;
-            socket.set_zero_linger()?;
-
-            let buffer_size = 16 * 1024 * 1024; // 16mb
-
-            socket.set_recv_buffer_size(buffer_size)?;
-            socket.set_send_buffer_size(buffer_size)?;
-
-            socket.bind(self.inner.socket_addr)?;
-
-            let tcp_listener_arc = Arc::new(socket.listen(1024)?);
-
-            {
-                let mut tcp_listener_socket_addr = self.inner.tcp_listener_socket_addr.lock();
-
-                *tcp_listener_socket_addr = Some(tcp_listener_arc.local_addr()?.clone());
-            }
-
-            *tcp_listener = Some(tcp_listener_arc.clone());
-
-            tcp_listener_arc
-        };
-
-        let self_clone = self.clone();
-
-        tokio::spawn(async move {
-            self_clone.handle_listener(tcp_listener).await.unwrap();
+        let tcp_listener = self.create_tcp_listener()?;
+        let process = Arc::new(TcpIngressProcess {
+            token: CancellationToken::new(),
         });
+
+        info!(ingress_id = %self.id(), "Starting UDP ingress");
+
+        {
+            let mut process_guard = self.inner.process.write();
+            *process_guard = Some(process.clone());
+        }
+
+        tokio::spawn(self.clone().start_socket_to_tunnel(process, tcp_listener));
+
+        self.state()
+            .wait_for(|state| *state == State::Started)
+            .await?;
 
         Ok(())
     }
 
     async fn stop(&self) -> Result<(), Error> {
-        if let Some(tcp_listener) = self.inner.tcp_listener.lock().await.take() {
-            drop(tcp_listener);
-
-            Ok(())
+        if let Some(process) = self.inner.process.read().as_ref() {
+            info!(egress_id = %self.id(), "Stopping UDP ingress");
+            process.token.cancel();
         } else {
-            Err(Error::IngressNotStarted)
+            return Err(Error::IngressNotStarted);
         }
+
+        self.state()
+            .wait_for(|state| *state == State::Stopped)
+            .await?;
+
+        Ok(())
     }
 }
 
 impl TcpIngress {
     pub fn new(id: IngressId, auth_key: AuthKey, socket_addr: SocketAddr) -> Self {
+        let (state_sender, state_receiver) = watch::channel(State::Stopped);
+
         Self {
             inner: Arc::new(TcpIngressInner {
                 id,
                 auth_key,
-                socket_addr,
+                listen_addr: socket_addr,
+                process_lock: Mutex::new(()),
+                process: RwLock::new(None),
                 tunnels: RwLock::new(Vec::new()),
-                tcp_listener: tokio::sync::Mutex::new(None),
-                tcp_listener_socket_addr: Mutex::new(None),
                 tunnel_rotation: AtomicUsize::new(0),
+                state_sender,
+                state_receiver,
             }),
         }
     }
 
-    pub fn socket_addr(&self) -> Option<SocketAddr> {
-        self.inner.tcp_listener_socket_addr.lock().clone()
-    }
+    async fn start_socket_to_tunnel(
+        self,
+        process: Arc<TcpIngressProcess>,
+        tcp_listener: TcpListener,
+    ) {
+        info!(ingress_id = %self.id(), "Ready to accept TCP connections on {}.", self.inner.listen_addr);
 
-    async fn handle_listener(&self, tcp_listener: Arc<TcpListener>) -> Result<(), Error> {
-        let tcp_listener_cancellation_token = CancellationToken::new();
-        info!(ingress_id = %self.id(), "Ready to accept TCP connections on {}.", self.inner.socket_addr);
+        let _ = self.inner.state_sender.send(State::Started);
 
-        while let Ok((tcp_stream, _)) = tcp_listener.accept().await {
-            debug!(
-                ingress_id = %self.id(),
-                remote_addr = %tcp_stream.peer_addr()?,
-                "Received TCP connection"
-            );
+        loop {
+            tokio::select! {
+                result = tcp_listener.accept() => {
+                    match result {
+                        Ok((tcp_stream, _)) => {
+                            info!(
+                                ingress_id = %self.id(),
+                                remote_addr = %tcp_stream.peer_addr().unwrap(),
+                                "Received TCP connection"
+                            );
 
-            let self_clone = self.clone();
-            let tcp_listener_cancellation_token_clone = tcp_listener_cancellation_token.clone();
-
-            tokio::spawn(async move {
-                if let Err(e) = self_clone
-                    .handle_stream(tcp_stream, tcp_listener_cancellation_token_clone)
-                    .await
-                {
-                    error!("Error while handling tcp connection in ingress. {}", e);
+                            tokio::spawn(self.clone().start_stream_to_tunnel(process.clone(), tcp_stream));
+                        }
+                        Err(e) => {
+                            error!(ingress_id = %self.id(), "Error accepting TCP stream: {e}");
+                            break;
+                        }
+                    }
                 }
-            });
+                _ = process.token.cancelled() => {
+                    debug!(ingress_id = %self.id(), "Stopped socket => tunnel.");
+                    break;
+                }
+            }
         }
 
-        tcp_listener_cancellation_token.cancel();
+        self.inner.process.write().take();
+        process.token.cancel();
 
-        Ok(())
+        let _ = self.inner.state_sender.send(State::Stopped);
+
+        info!(egress_id = %self.id(), "Stopped UDP ingress");
     }
 
-    async fn handle_stream(
-        &self,
-        tcp_stream: TcpStream,
-        tcp_listener_cancellation_token: CancellationToken,
-    ) -> Result<(), Error> {
+    async fn start_stream_to_tunnel(self, process: Arc<TcpIngressProcess>, tcp_stream: TcpStream) {
+        let Some(tunnel) = self.get_tunnel_to_connect() else {
+            warn!(egress_id = %self.id(), "No tunnel connected.");
+            return;
+        };
+
         tcp_stream.set_nodelay(true).unwrap();
 
-        let tcp_remote_addr = tcp_stream.peer_addr()?;
+        let tcp_remote_addr = tcp_stream.peer_addr().unwrap();
         let (tcp_read_stream, tcp_write_stream): (OwnedReadHalf, OwnedWriteHalf) =
             tcp_stream.into_split();
 
-        let Some(tunnel) = self.get_tunnel_to_connect() else {
-            return Err(Error::IngressNoTunnelConnected);
-        };
-
-        let (tunnel_read_stream, tunnel_write_stream, tunnel_stream) =
-            tunnel.create_stream().await?;
-
-        handle_protocol_v1_tcp_stream(
-            self.id(),
-            tunnel_stream,
-            tunnel_read_stream,
-            tunnel_write_stream,
-            tcp_remote_addr,
-            tcp_read_stream,
-            tcp_write_stream,
-            tcp_listener_cancellation_token,
-        )
-        .await;
-
-        Ok(())
+        match tunnel.create_stream().await {
+            Ok((tunnel_read_stream, tunnel_write_stream, tunnel_stream)) => {
+                handle_protocol_v1_tcp_stream(
+                    self.id(),
+                    tunnel_stream,
+                    tunnel_read_stream,
+                    tunnel_write_stream,
+                    tcp_remote_addr,
+                    tcp_read_stream,
+                    tcp_write_stream,
+                    process.token.clone(),
+                )
+                .await;
+            }
+            Err(e) => {
+                error!(egress_id = %self.id(), "Error creating tunnel stream: {e}");
+            }
+        }
     }
 
     fn get_tunnel_to_connect(&self) -> Option<Tunnel> {
@@ -216,5 +220,32 @@ impl TcpIngress {
             tunnels[self.inner.tunnel_rotation.fetch_add(1, Ordering::Relaxed) % tunnels.len()]
                 .clone(),
         )
+    }
+
+    fn create_tcp_listener(&self) -> Result<TcpListener, Error> {
+        let socket = TcpSocket::new_v4()?;
+
+        socket.set_reuseaddr(true)?;
+        socket.set_reuseport(true)?;
+        socket.set_zero_linger()?;
+
+        let buffer_size = 16 * 1024 * 1024; // 16mb
+
+        socket.set_recv_buffer_size(buffer_size)?;
+        socket.set_send_buffer_size(buffer_size)?;
+
+        socket.bind(self.inner.listen_addr)?;
+
+        Ok(socket.listen(1024)?)
+    }
+
+    async fn handle_tunnel_close(self, tunnel: Tunnel) {
+        tunnel.closed().await;
+
+        let mut tunnels = self.inner.tunnels.write();
+
+        if let Some(i) = tunnels.iter().position(|t| t.id() == tunnel.id()) {
+            tunnels.swap_remove(i);
+        }
     }
 }

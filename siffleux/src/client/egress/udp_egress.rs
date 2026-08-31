@@ -22,9 +22,9 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info};
 
 use crate::{
-    Egress, Error, IngressId, Tunnel,
+    Egress, Error, IngressId, State, Tunnel,
     authentication::Authentication,
-    client::egress::{EgressId, egress::State},
+    client::egress::EgressId,
     frames::v1::{extract_origin_socket_addr_from_datagram, to_datagram},
 };
 
@@ -74,8 +74,6 @@ impl Egress for UdpEgress {
         }
 
         info!(egress_id = %self.id(), "Starting UDP egress");
-
-        let _ = self.inner.state_sender.send(State::Starting);
 
         let mut process = self.inner.process.write();
         let token = CancellationToken::new();
@@ -150,8 +148,8 @@ impl UdpEgress {
                         let mut udp_sockets: HashMap<SocketAddr, mpsc::Sender<Bytes>> =
                             HashMap::with_capacity(64);
 
-                        info!(egress_id = %self_clone.id(), "Started");
-                        let _ = self_clone.inner.state_sender.send(State::Ready);
+                        info!(egress_id = %self_clone.id(), "UDP egress started.");
+                        let _ = self_clone.inner.state_sender.send(State::Started);
 
                         loop {
                             tokio::select! {

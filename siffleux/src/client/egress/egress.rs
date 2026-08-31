@@ -1,13 +1,6 @@
 use tokio::sync::watch;
 
-use crate::{Error, IngressId, client::egress::EgressId};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum State {
-    Stopped,
-    Starting,
-    Ready,
-}
+use crate::{Error, IngressId, State, client::egress::EgressId};
 
 #[async_trait::async_trait]
 pub trait Egress: EgressClone + Send + Sync {

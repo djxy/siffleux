@@ -1,13 +1,6 @@
 use tokio::sync::watch;
 
-use crate::{AuthKey, Error, IngressId, Tunnel};
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum State {
-    Stopped,
-    Starting,
-    Ready,
-}
+use crate::{AuthKey, Error, IngressId, State, Tunnel};
 
 #[async_trait::async_trait]
 pub trait Ingress: IngressClone + Send + Sync {
@@ -17,11 +10,11 @@ pub trait Ingress: IngressClone + Send + Sync {
 
     fn state(&self) -> watch::Receiver<State>;
 
-    fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error>;
+    async fn start(&self) -> Result<(), Error>;
 
-    fn start(&self) -> Result<(), Error>;
+    async fn stop(&self) -> Result<(), Error>;
 
-    fn stop(&self) -> Result<(), Error>;
+    async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error>;
 }
 
 pub trait IngressClone {

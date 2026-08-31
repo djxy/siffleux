@@ -1,6 +1,7 @@
 mod auth_key;
 mod byte_counter;
 mod error;
+mod state;
 mod tunnel;
 mod utils;
 
@@ -11,6 +12,7 @@ pub mod protocols;
 pub use auth_key::AuthKey;
 pub use byte_counter::ByteCounter;
 pub use error::Error;
+pub use state::State;
 pub use tunnel::Tunnel;
 pub use tunnel::TunnelReadFramed;
 pub use tunnel::TunnelReadStream;

@@ -16,9 +16,8 @@ use tokio_util::sync::CancellationToken;
 use tracing::{debug, error, info, warn};
 
 use crate::{
-    Egress, Error, IngressId, TunnelReadStream, TunnelStream, TunnelWriteStream,
-    authentication::Authentication,
-    client::egress::{EgressId, egress::State},
+    Egress, Error, IngressId, State, TunnelReadStream, TunnelStream, TunnelWriteStream,
+    authentication::Authentication, client::egress::EgressId,
     protocols::v1::handle_protocol_v1_tcp_stream,
 };
 
@@ -66,8 +65,6 @@ impl Egress for TcpEgress {
         }
 
         info!(egress_id = %self.id(), "Starting");
-
-        let _ = self.inner.state_sender.send(State::Starting);
 
         let mut process = self.inner.process.write();
         let token = CancellationToken::new();
@@ -136,9 +133,8 @@ impl TcpEgress {
                     Ok(tunnel) => {
                         retry = 0;
                         info!(egress_id = %self_clone.id(), "Tunnel established.");
-
-                        info!(egress_id = %self_clone.id(), "Started");
-                        let _ = self_clone.inner.state_sender.send(State::Ready);
+                        info!(egress_id = %self_clone.id(), "TCP egress started.");
+                        let _ = self_clone.inner.state_sender.send(State::Started);
 
                         loop {
                             tokio::select! {
