@@ -16,6 +16,8 @@ use crate::{Ingress, IngressId};
 struct TcpIngressProcess {
     /// Token used to stop all the tasks related to the process.
     token: CancellationToken,
+    /// The socket addr the TCP listener is bound to.
+    local_addr: SocketAddr,
 }
 
 #[derive(Clone)]
@@ -49,8 +51,12 @@ impl Ingress for TcpIngress {
         self.inner.state_receiver.clone()
     }
 
+    fn local_addr(&self) -> Option<SocketAddr> {
+        self.inner.process.read().as_ref().map(|p| p.local_addr)
+    }
+
     async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
-        if self.inner.process.read().as_ref().is_some() {
+        if self.inner.process.read().as_ref().is_none() {
             return Err(Error::IngressNotStarted);
         }
 
@@ -76,10 +82,11 @@ impl Ingress for TcpIngress {
 
         let tcp_listener = self.create_tcp_listener()?;
         let process = Arc::new(TcpIngressProcess {
+            local_addr: tcp_listener.local_addr()?,
             token: CancellationToken::new(),
         });
 
-        info!(ingress_id = %self.id(), "Starting UDP ingress");
+        info!(ingress_id = %self.id(), "Starting TCP ingress");
 
         {
             let mut process_guard = self.inner.process.write();

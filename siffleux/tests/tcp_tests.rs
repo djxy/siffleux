@@ -78,7 +78,7 @@ async fn test_send_and_receive_data() {
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
     tcp_ingress.start().await.unwrap();
@@ -132,18 +132,18 @@ async fn test_send_and_receive_data() {
         .await
         .unwrap();
 
-    let mut stream = TcpStream::connect(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 9000))
+    let mut tcp_stream = TcpStream::connect(tcp_ingress.local_addr().unwrap())
         .await
         .unwrap();
 
     let mut buffer = [0u8; 14];
 
-    stream.write_all(b"Hello, server!").await.unwrap();
-    stream.read_exact(&mut buffer).await.unwrap();
+    tcp_stream.write_all(b"Hello, server!").await.unwrap();
+    tcp_stream.read_exact(&mut buffer).await.unwrap();
 
-    stream.shutdown().await.unwrap();
+    tcp_stream.shutdown().await.unwrap();
 
-    assert_eq!(0, stream.read_to_end(&mut Vec::new()).await.unwrap());
+    assert_eq!(0, tcp_stream.read_to_end(&mut Vec::new()).await.unwrap());
     assert_eq!(
         "Hello, server!",
         &String::from_utf8(buffer[..].to_vec()).unwrap()
@@ -177,7 +177,7 @@ async fn test_open_multiple_connections() {
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
     tcp_ingress.start().await.unwrap();
@@ -234,24 +234,24 @@ async fn test_open_multiple_connections() {
     let mut streams: Vec<TcpStream> = Vec::new();
 
     for _ in 0..10 {
-        let mut stream = TcpStream::connect(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 9000))
+        let mut tcp_stream = TcpStream::connect(tcp_ingress.local_addr().unwrap())
             .await
             .unwrap();
 
         let mut buffer = [0u8; 14];
 
-        stream.write_all(b"Hello, server!").await.unwrap();
-        stream.read_exact(&mut buffer).await.unwrap();
+        tcp_stream.write_all(b"Hello, server!").await.unwrap();
+        tcp_stream.read_exact(&mut buffer).await.unwrap();
 
-        stream.shutdown().await.unwrap();
+        tcp_stream.shutdown().await.unwrap();
 
-        assert_eq!(0, stream.read_to_end(&mut Vec::new()).await.unwrap());
+        assert_eq!(0, tcp_stream.read_to_end(&mut Vec::new()).await.unwrap());
         assert_eq!(
             "Hello, server!",
             &String::from_utf8(buffer[..].to_vec()).unwrap()
         );
 
-        streams.push(stream);
+        streams.push(tcp_stream);
     }
 
     for mut stream in streams.drain(..) {
@@ -286,7 +286,7 @@ async fn test_target_tcp_write_dropped() {
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
     tcp_ingress.start().await.unwrap();
@@ -329,12 +329,12 @@ async fn test_target_tcp_write_dropped() {
         .await
         .unwrap();
 
-    let mut stream = TcpStream::connect(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 9000))
+    let mut tcp_stream = TcpStream::connect(tcp_ingress.local_addr().unwrap())
         .await
         .unwrap();
 
-    stream.write(&mut [0u8; 10]).await.unwrap();
-    let result = stream.read(&mut [0u8; 0]).await;
+    tcp_stream.write(&mut [0u8; 10]).await.unwrap();
+    let result = tcp_stream.read(&mut [0u8; 0]).await;
 
     assert_eq!(false, result.is_err());
     assert_eq!(Some(0), result.ok());
@@ -367,7 +367,7 @@ async fn test_origin_tcp_write_dropped() {
     let tcp_ingress = TcpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
     tcp_ingress.start().await.unwrap();
@@ -410,7 +410,7 @@ async fn test_origin_tcp_write_dropped() {
         .await
         .unwrap();
 
-    let tcp_stream = TcpStream::connect(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 9000))
+    let tcp_stream = TcpStream::connect(tcp_ingress.local_addr().unwrap())
         .await
         .unwrap();
 

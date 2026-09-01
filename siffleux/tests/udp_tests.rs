@@ -72,7 +72,7 @@ async fn test_send_and_receive_data() {
     let udp_ingress = UdpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
     udp_ingress.start().await.unwrap();
@@ -121,7 +121,7 @@ async fn test_send_and_receive_data() {
         .unwrap();
 
     udp_socket
-        .connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000))
+        .connect(udp_ingress.local_addr().unwrap())
         .await
         .unwrap();
 
@@ -164,7 +164,7 @@ async fn test_open_multiple_sockets() {
     let udp_ingress = UdpIngress::new(
         ingress_id.clone(),
         auth_key.clone(),
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000),
+        SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 0),
     );
 
     udp_ingress.start().await.unwrap();
@@ -216,7 +216,7 @@ async fn test_open_multiple_sockets() {
             .unwrap();
 
         udp_socket
-            .connect(SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 9000))
+            .connect(udp_ingress.local_addr().unwrap())
             .await
             .unwrap();
 

@@ -1,3 +1,5 @@
+use std::net::SocketAddr;
+
 use tokio::sync::watch;
 
 use crate::{AuthKey, Error, IngressId, State, Tunnel};
@@ -9,6 +11,8 @@ pub trait Ingress: IngressClone + Send + Sync {
     fn auth_key(&self) -> &AuthKey;
 
     fn state(&self) -> watch::Receiver<State>;
+
+    fn local_addr(&self) -> Option<SocketAddr>;
 
     async fn start(&self) -> Result<(), Error>;
 

@@ -323,8 +323,9 @@ impl UdpEgress {
                     recv_result = udp_socket.recv(&mut buffer) => {
                         match recv_result {
                             Ok(size) => {
-                                if let Err(_) = tunnel.try_send_datagram(to_datagram(origin_socket_addr, &buffer, size)) {
-                                    if let Err(_) = tunnel.send_datagram(to_datagram(origin_socket_addr, &buffer, size)).await {
+                                let datagram = to_datagram(origin_socket_addr, &buffer, size);
+                                if let Err(_) = tunnel.try_send_datagram(datagram.clone()) {
+                                    if let Err(_) = tunnel.send_datagram(datagram).await {
                                         info!("{size} received bytes dropped");
                                     }
                                 }

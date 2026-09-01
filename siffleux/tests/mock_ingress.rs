@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{net::SocketAddr, sync::Arc};
 
 use async_trait::async_trait;
 use siffleux::{AuthKey, Error, Ingress, IngressId, State, Tunnel};
@@ -53,6 +53,10 @@ impl Ingress for MockIngress {
 
     fn state(&self) -> watch::Receiver<State> {
         self.inner.state_receiver.clone()
+    }
+
+    fn local_addr(&self) -> Option<SocketAddr> {
+        None
     }
 
     async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {

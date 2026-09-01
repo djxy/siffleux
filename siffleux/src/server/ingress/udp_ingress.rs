@@ -17,6 +17,8 @@ struct UdpIngressProcess {
     /// Token used to stop all the tasks related to the process.
     token: CancellationToken,
     udp_socket: UdpSocket,
+    /// The socket addr the TCP listener is bound to.
+    local_addr: SocketAddr,
 }
 
 #[derive(Clone)]
@@ -36,6 +38,8 @@ struct UdpIngressInner {
     state_receiver: watch::Receiver<State>,
 }
 
+const DATAGRAM_BUFFER_SIZE: usize = 1400;
+
 #[async_trait::async_trait]
 impl Ingress for UdpIngress {
     fn id(&self) -> &IngressId {
@@ -48,6 +52,10 @@ impl Ingress for UdpIngress {
 
     fn state(&self) -> watch::Receiver<State> {
         self.inner.state_receiver.clone()
+    }
+
+    fn local_addr(&self) -> Option<SocketAddr> {
+        self.inner.process.read().as_ref().map(|p| p.local_addr)
     }
 
     async fn assign_tunnel(&self, tunnel: Tunnel) -> Result<(), Error> {
@@ -76,8 +84,10 @@ impl Ingress for UdpIngress {
             return Err(Error::IngressAlreadyStarted);
         }
 
+        let udp_socket = self.create_udp_socket()?;
         let process = Arc::new(UdpIngressProcess {
-            udp_socket: self.create_udp_socket()?,
+            local_addr: udp_socket.local_addr()?,
+            udp_socket,
             token: CancellationToken::new(),
         });
 
@@ -137,9 +147,9 @@ impl UdpIngress {
 
         let _ = self.inner.state_sender.send(State::Started);
 
-        let mut buffer = [0u8; 1500];
-
         loop {
+            let mut buffer = [0u8; DATAGRAM_BUFFER_SIZE];
+
             tokio::select! {
                 result = process.udp_socket.recv_from(&mut buffer) => {
                     match result {
@@ -202,10 +212,10 @@ impl UdpIngress {
             }
         };
 
-        if let Err(_) = tunnel.try_send_datagram(to_datagram(socket_addr, data, data_size)) {
-            tunnel
-                .send_datagram(to_datagram(socket_addr, data, data_size))
-                .await?
+        let datagram = to_datagram(socket_addr, data, data_size);
+
+        if let Err(_) = tunnel.try_send_datagram(datagram.clone()) {
+            tunnel.send_datagram(datagram).await?
         }
 
         Ok(())
