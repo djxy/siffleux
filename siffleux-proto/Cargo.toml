@@ -9,7 +9,3 @@ quinn-udp = { version = "0.6.1", features = ["fast-apple-datapath"] }
 snow = { version = "0.10.0", features = ["ring-accelerated"] }
 socket2 = "0.6.5"
 tokio = { workspace = true }
-
-[[bin]]
-name = "siffleux-proto"
-path = "src/main.rs"

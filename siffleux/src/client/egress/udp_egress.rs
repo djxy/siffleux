@@ -79,7 +79,7 @@ impl Egress for UdpEgress {
         let token = CancellationToken::new();
 
         *process = Some(UdpEgressProcess {
-            tunnel_task: self.start_tunnel(token.clone()),
+            tunnel_task: tokio::spawn(self.clone().start_tunnel(token.clone())),
             token,
         });
 
@@ -127,224 +127,205 @@ impl UdpEgress {
         }
     }
 
-    fn start_tunnel(&self, process_token: CancellationToken) -> JoinHandle<()> {
-        let self_clone = self.clone();
+    async fn start_tunnel(self, process_token: CancellationToken) {
+        let mut retry: u32 = 0;
 
-        tokio::spawn(async move {
-            let mut retry: u32 = 0;
+        loop {
+            info!(egress_id = %self.id(), "Connecting to server...");
 
-            loop {
-                info!(egress_id = %self_clone.id(), "Connecting to server...");
+            match self.inner.authentication.connect(&self).await {
+                Ok(tunnel) => {
+                    retry = 0;
+                    info!(egress_id = %self.id(), "Tunnel established.");
 
-                match self_clone.inner.authentication.connect(&self_clone).await {
-                    Ok(tunnel) => {
-                        retry = 0;
-                        info!(egress_id = %self_clone.id(), "Tunnel established.");
+                    let (
+                        expired_origin_socket_addr_sender,
+                        mut expired_origin_socket_addr_receiver,
+                    ) = mpsc::unbounded_channel::<SocketAddr>();
+                    let mut udp_sockets: HashMap<SocketAddr, mpsc::Sender<Bytes>> =
+                        HashMap::with_capacity(64);
 
-                        let (
-                            expired_origin_socket_addr_sender,
-                            mut expired_origin_socket_addr_receiver,
-                        ) = mpsc::unbounded_channel::<SocketAddr>();
-                        let mut udp_sockets: HashMap<SocketAddr, mpsc::Sender<Bytes>> =
-                            HashMap::with_capacity(64);
+                    info!(egress_id = %self.id(), "UDP egress started.");
+                    let _ = self.inner.state_sender.send(State::Started);
 
-                        info!(egress_id = %self_clone.id(), "UDP egress started.");
-                        let _ = self_clone.inner.state_sender.send(State::Started);
-
-                        loop {
-                            tokio::select! {
-                                datagram_received_result = tunnel.read_datagram() => {
-                                    match datagram_received_result {
-                                        Ok(bytes) => {
-                                            info!("{} bytes received tunnel", bytes.len());
-                                            self_clone.process_datagram(
-                                                bytes,
-                                                &tunnel,
-                                                &mut udp_sockets,
-                                                &expired_origin_socket_addr_sender,
-                                                &process_token
-                                            ).await;
-                                        }
-                                        Err(e) => {
-                                            if !matches!(e, Error::ClosedTunnel) {
-                                                error!(egress_id = %self_clone.id(), "Error while receiving a datagram from tunnel: {}", e);
-                                            }
+                    loop {
+                        tokio::select! {
+                            datagram_received_result = tunnel.read_datagram() => {
+                                match datagram_received_result {
+                                    Ok(datagram) => {
+                                        self.process_datagram(
+                                            datagram,
+                                            &tunnel,
+                                            &mut udp_sockets,
+                                            &expired_origin_socket_addr_sender,
+                                            &process_token
+                                        ).await;
+                                    }
+                                    Err(e) => {
+                                        if !matches!(e, Error::ClosedTunnel) {
+                                            error!(egress_id = %self.id(), "Error while receiving a datagram from tunnel: {}", e);
                                         }
                                     }
-                                }
-                                socket_addr = expired_origin_socket_addr_receiver.recv() => {
-                                    if let Some(socket_addr) = socket_addr {
-                                        udp_sockets.remove(&socket_addr);
-                                    }
-                                }
-                                _ = tunnel.closed() => {
-                                    break;
-                                }
-                                _ = process_token.cancelled() => {
-                                    tunnel.close().await;
-                                    return;
                                 }
                             }
-                        }
-                    }
-                    Err(_) => {
-                        let duration =
-                            Duration::from_millis((100 * 2_u64.pow(retry)).min(30_000_u64));
-
-                        info!(egress_id = %self_clone.id(), "Failed to connect. Reconnecting in {:?}.", duration);
-
-                        tokio::select! {
-                            _ = sleep(duration) => {
-                                retry += 1;
+                            socket_addr = expired_origin_socket_addr_receiver.recv() => {
+                                if let Some(socket_addr) = socket_addr {
+                                    udp_sockets.remove(&socket_addr);
+                                }
+                            }
+                            _ = tunnel.closed() => {
+                                break;
                             }
                             _ = process_token.cancelled() => {
-                                debug!(egress_id = %self_clone.id(), "Cancelling reconnection to the server.");
+                                tunnel.close().await;
                                 return;
                             }
                         }
                     }
                 }
+                Err(_) => {
+                    let duration = Duration::from_millis((100 * 2_u64.pow(retry)).min(30_000_u64));
+
+                    info!(egress_id = %self.id(), "Failed to connect. Reconnecting in {:?}.", duration);
+
+                    tokio::select! {
+                        _ = sleep(duration) => {
+                            retry += 1;
+                        }
+                        _ = process_token.cancelled() => {
+                            debug!(egress_id = %self.id(), "Cancelling reconnection to the server.");
+                            return;
+                        }
+                    }
+                }
             }
-        })
+        }
     }
 
     async fn process_datagram(
         &self,
-        mut bytes: Bytes,
+        mut datagram: Bytes,
         tunnel: &Tunnel,
         udp_sockets: &mut HashMap<SocketAddr, mpsc::Sender<Bytes>>,
         expired_origin_socket_addr_sender: &UnboundedSender<SocketAddr>,
         process_token: &CancellationToken,
     ) {
-        let Some(origin_socket_addr) = extract_origin_socket_addr_from_datagram(&mut bytes) else {
+        let Some(origin_socket_addr) = extract_origin_socket_addr_from_datagram(&mut datagram)
+        else {
             return;
         };
 
         if let Some(tunnel_to_socket_sender) = udp_sockets.get(&origin_socket_addr) {
-            let len = bytes.len();
-
-            if let Err(b) = tunnel_to_socket_sender.try_send(bytes) {
-                if let Err(_) = tunnel_to_socket_sender.send(b.into_inner()).await {
-                    info!("{len} queue bytes dropped");
-                }
+            if let Err(_) = tunnel_to_socket_sender.try_send(datagram.clone()) {
+                let _ = tunnel_to_socket_sender.send(datagram).await;
             }
         } else {
             let (tunnel_to_socket_sender, tunnel_to_socket_receiver) =
                 mpsc::channel::<Bytes>(MAX_MESSAGES_RECEIVED);
 
-            self.pipe_tunnel_to_socket_datagram(
+            tokio::spawn(self.clone().start_tunnel_to_socket(
                 tunnel.clone(),
                 origin_socket_addr,
                 tunnel_to_socket_receiver,
                 process_token.clone(),
                 expired_origin_socket_addr_sender.clone(),
-            );
+            ));
 
-            let _ = tunnel_to_socket_sender.try_send(bytes);
+            let _ = tunnel_to_socket_sender.try_send(datagram);
 
             udp_sockets.insert(origin_socket_addr, tunnel_to_socket_sender);
         }
     }
 
-    fn pipe_tunnel_to_socket_datagram(
-        &self,
+    async fn start_tunnel_to_socket(
+        self,
         tunnel: Tunnel,
         origin_socket_addr: SocketAddr,
         mut tunnel_to_socket_receiver: Receiver<Bytes>,
         process_token: CancellationToken,
         expired_origin_socket_addr_sender: UnboundedSender<SocketAddr>,
     ) {
-        let self_clone = self.clone();
+        let Ok(udp_socket) = self.create_udp_socket().await else {
+            let _ = expired_origin_socket_addr_sender.send(origin_socket_addr);
+            return;
+        };
 
-        tokio::spawn(async move {
-            let Ok(udp_socket) = self_clone.create_udp_socket().await else {
-                let _ = expired_origin_socket_addr_sender.send(origin_socket_addr);
-                return;
-            };
+        let udp_socket = Arc::from(udp_socket);
+        let socket_token = CancellationToken::new();
 
-            let udp_socket = Arc::from(udp_socket);
-            let socket_token = CancellationToken::new();
+        tokio::spawn(self.clone().start_socket_to_tunnel(
+            tunnel.clone(),
+            origin_socket_addr,
+            udp_socket.clone(),
+            process_token.clone(),
+            socket_token.clone(),
+        ));
 
-            self_clone.pipe_socket_to_tunnel_datagram(
-                tunnel.clone(),
-                origin_socket_addr,
-                udp_socket.clone(),
-                process_token.clone(),
-                socket_token.clone(),
-            );
+        let mut bytes_received: Vec<Bytes> = Vec::with_capacity(MAX_MESSAGES_RECEIVED);
 
-            let mut bytes_received: Vec<Bytes> = Vec::with_capacity(MAX_MESSAGES_RECEIVED);
+        loop {
+            tokio::select! {
+                count = tunnel_to_socket_receiver.recv_many(&mut bytes_received, MAX_MESSAGES_RECEIVED) => {
+                    if count == 0 {
+                        return;
+                    }
 
-            loop {
-                tokio::select! {
-                    count = tunnel_to_socket_receiver.recv_many(&mut bytes_received, MAX_MESSAGES_RECEIVED) => {
-                        if count == 0 {
-                            return;
+                    for bytes in bytes_received.drain(..) {
+                        if let Err(_) = udp_socket.try_send(&bytes) {
+                            let _ = udp_socket.send(&bytes).await;
+                            info!("{} udp socket bytes dropped", bytes.len());
+                        } else {
+                            info!("{} udp socket bytes sent", bytes.len());
                         }
-
-                        for bytes in bytes_received.drain(..) {
-                            if let Err(_) = udp_socket.try_send(&bytes){
-                                info!("{} udp socket bytes dropped", bytes.len());
-                            } else {
-                                info!("{} udp socket bytes sent", bytes.len());
-                            }
-                        }
-                    }
-                    _ = sleep(Duration::from_secs(60)) => {
-                        let _ = expired_origin_socket_addr_sender.send(origin_socket_addr);
-                        socket_token.cancel();
-                        return;
-                    }
-                    _ = process_token.cancelled() => {
-                        return;
-                    }
-                    _ = tunnel.closed() => {
-                        let _ = expired_origin_socket_addr_sender.send(origin_socket_addr);
-                        return;
                     }
                 }
+                _ = sleep(Duration::from_secs(60)) => {
+                    let _ = expired_origin_socket_addr_sender.send(origin_socket_addr);
+                    socket_token.cancel();
+                    return;
+                }
+                _ = process_token.cancelled() => {
+                    return;
+                }
+                _ = tunnel.closed() => {
+                    let _ = expired_origin_socket_addr_sender.send(origin_socket_addr);
+                    return;
+                }
             }
-        });
+        }
     }
 
-    fn pipe_socket_to_tunnel_datagram(
-        &self,
+    async fn start_socket_to_tunnel(
+        self,
         tunnel: Tunnel,
         origin_socket_addr: SocketAddr,
         udp_socket: Arc<UdpSocket>,
         process_token: CancellationToken,
         socket_token: CancellationToken,
     ) {
-        tokio::spawn(async move {
-            let mut buffer = [0u8; 1500];
+        let mut buffer = [0u8; 1500];
 
-            loop {
-                tokio::select! {
-                    recv_result = udp_socket.recv(&mut buffer) => {
-                        match recv_result {
-                            Ok(size) => {
-                                let datagram = to_datagram(origin_socket_addr, &buffer, size);
-                                if let Err(_) = tunnel.try_send_datagram(datagram.clone()) {
-                                    if let Err(_) = tunnel.send_datagram(datagram).await {
-                                        info!("{size} received bytes dropped");
-                                    }
-                                }
-                            }
-                            Err(_) => {}
+        loop {
+            tokio::select! {
+                recv_result = udp_socket.recv(&mut buffer) => {
+                    match recv_result {
+                        Ok(len) => {
+                            let _ = tunnel.send_datagram(to_datagram(origin_socket_addr, &buffer, len)).await;
                         }
-                    }
-                    _ = socket_token.cancelled() => {
-                        return;
-                    }
-                    _ = tunnel.closed() => {
-                        return;
-                    }
-                    _ = process_token.cancelled() => {
-                        return;
+                        Err(_) => {}
                     }
                 }
+                _ = socket_token.cancelled() => {
+                    return;
+                }
+                _ = tunnel.closed() => {
+                    return;
+                }
+                _ = process_token.cancelled() => {
+                    return;
+                }
             }
-        });
+        }
     }
 
     async fn create_udp_socket(&self) -> Result<UdpSocket, Error> {
